@@ -32,7 +32,7 @@ func main() {
 	flag.IntVar(&rows, "rows", 1000, "Rows per table for data generation")
 	flag.IntVar(&workers, "workers", 8, "Concurrent EXPLAIN workers")
 	flag.IntVar(&timeout, "timeout", 5000, "Per-query statement timeout (ms)")
-	flag.StringVar(&outputFile, "output", "calibrated_weights.json", "Output file for calculated weights")
+	flag.StringVar(&outputFile, "output", "scorer/weights.json", "Output file for calculated weights (embedded by cmd/sqlscore at build time)")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, `sqlscore calibrate — Weight calibration via EXPLAIN ANALYZE

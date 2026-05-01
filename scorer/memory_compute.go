@@ -6,14 +6,12 @@ import (
 	"github.com/sqlscore/parser"
 )
 
-// Memory/Compute penalty weights.
-const (
-	PenaltyUnboundedSort    = 8
-	PenaltyGroupByFanout    = 5
-	PenaltyWindowFunction   = 6
-	PenaltyCartesianProduct = 15
-	PenaltyNoPartition      = 4
-)
+// Memory/Compute penalty accessors — values loaded from embedded weights.json.
+func PenaltyUnboundedSort() int    { return Weight("unbounded-sort") }
+func PenaltyGroupByFanout() int    { return Weight("group-by-fanout") }
+func PenaltyWindowFunction() int   { return Weight("window-function") }
+func PenaltyCartesianProduct() int { return Weight("cartesian-product") }
+func PenaltyNoPartition() int      { return Weight("window-no-partition-extra") }
 
 // MemoryComputeScorer scores operations that require materializing intermediate results.
 type MemoryComputeScorer struct{}
@@ -52,10 +50,10 @@ func (s *MemoryComputeScorer) checkUnboundedSort(sel *pg_query.SelectStmt, ds *D
 		ds.Findings = append(ds.Findings, Finding{
 			Rule:        "unbounded-sort",
 			Description: "ORDER BY without LIMIT requires materializing and sorting the entire result set",
-			Penalty:     PenaltyUnboundedSort,
+			Penalty:     PenaltyUnboundedSort(),
 			Category:    "memory_compute",
 		})
-		ds.Score += PenaltyUnboundedSort
+		ds.Score += PenaltyUnboundedSort()
 	}
 }
 
@@ -78,10 +76,10 @@ func (s *MemoryComputeScorer) checkGroupByFanout(sel *pg_query.SelectStmt, ds *D
 		ds.Findings = append(ds.Findings, Finding{
 			Rule:        "group-by-fanout",
 			Description: "GROUP BY with aggregation requires materializing groups in memory",
-			Penalty:     PenaltyGroupByFanout,
+			Penalty:     PenaltyGroupByFanout(),
 			Category:    "memory_compute",
 		})
-		ds.Score += PenaltyGroupByFanout
+		ds.Score += PenaltyGroupByFanout()
 	}
 }
 
@@ -97,10 +95,10 @@ func (s *MemoryComputeScorer) checkCartesianProduct(sel *pg_query.SelectStmt, ds
 			ds.Findings = append(ds.Findings, Finding{
 				Rule:        "cartesian-product",
 				Description: "CROSS JOIN produces a Cartesian product — O(n*m) rows",
-				Penalty:     PenaltyCartesianProduct,
+				Penalty:     PenaltyCartesianProduct(),
 				Category:    "memory_compute",
 			})
-			ds.Score += PenaltyCartesianProduct
+			ds.Score += PenaltyCartesianProduct()
 			return
 		}
 	}
@@ -116,10 +114,10 @@ func (s *MemoryComputeScorer) checkCartesianProduct(sel *pg_query.SelectStmt, ds
 		ds.Findings = append(ds.Findings, Finding{
 			Rule:        "cartesian-product",
 			Description: "Implicit cross join (multiple tables without WHERE) produces Cartesian product",
-			Penalty:     PenaltyCartesianProduct,
+			Penalty:     PenaltyCartesianProduct(),
 			Category:    "memory_compute",
 		})
-		ds.Score += PenaltyCartesianProduct
+		ds.Score += PenaltyCartesianProduct()
 	}
 }
 
@@ -159,10 +157,10 @@ func (s *MemoryComputeScorer) findWindowFunctions(node *pg_query.Node, ds *Dimen
 	}
 	if fc, ok := node.Node.(*pg_query.Node_FuncCall); ok {
 		if fc.FuncCall.Over != nil {
-			penalty := PenaltyWindowFunction
+			penalty := PenaltyWindowFunction()
 			desc := "Window function requires maintaining state across the partition"
 			if len(fc.FuncCall.Over.PartitionClause) == 0 {
-				penalty += PenaltyNoPartition
+				penalty += PenaltyNoPartition()
 				desc = "Window function without PARTITION BY operates over entire result set"
 			}
 			ds.Findings = append(ds.Findings, Finding{

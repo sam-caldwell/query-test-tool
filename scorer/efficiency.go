@@ -8,14 +8,12 @@ import (
 	"github.com/sqlscore/parser"
 )
 
-// Efficiency penalty weights.
-const (
-	PenaltySelectStar       = 5
-	PenaltyMissingPredicate = 10
-	PenaltyCorrelatedSubq   = 15
-	PenaltyNonSargable      = 10
-	PenaltyDistinctDedup    = 8
-)
+// Efficiency penalty accessors — values loaded from embedded weights.json.
+func PenaltySelectStar() int       { return Weight("select-star") }
+func PenaltyMissingPredicate() int { return Weight("missing-predicate") }
+func PenaltyCorrelatedSubq() int   { return Weight("correlated-subquery") }
+func PenaltyNonSargable() int      { return Weight("non-sargable") }
+func PenaltyDistinctDedup() int    { return Weight("distinct-dedup") }
 
 // EfficiencyScorer detects anti-patterns that prevent optimal query execution.
 type EfficiencyScorer struct{}
@@ -66,10 +64,10 @@ func (s *EfficiencyScorer) checkSelectStar(sel *pg_query.SelectStmt, ds *Dimensi
 						ds.Findings = append(ds.Findings, Finding{
 							Rule:        "select-star",
 							Description: "SELECT * prevents index-only scans and fetches unnecessary columns",
-							Penalty:     PenaltySelectStar,
+							Penalty:     PenaltySelectStar(),
 							Category:    "efficiency",
 						})
-						ds.Score += PenaltySelectStar
+						ds.Score += PenaltySelectStar()
 						return // only report once per SELECT
 					}
 				}
@@ -95,10 +93,10 @@ func (s *EfficiencyScorer) checkMissingPredicates(sel *pg_query.SelectStmt, ds *
 		ds.Findings = append(ds.Findings, Finding{
 			Rule:        "missing-predicate",
 			Description: "Multiple tables in FROM without WHERE clause — likely missing join predicate",
-			Penalty:     PenaltyMissingPredicate,
+			Penalty:     PenaltyMissingPredicate(),
 			Category:    "efficiency",
 		})
-		ds.Score += PenaltyMissingPredicate
+		ds.Score += PenaltyMissingPredicate()
 	}
 }
 
@@ -124,10 +122,10 @@ func (s *EfficiencyScorer) checkCorrelatedSubquery(sl *pg_query.SubLink, ds *Dim
 		ds.Findings = append(ds.Findings, Finding{
 			Rule:        "correlated-subquery",
 			Description: "Correlated subquery may execute once per outer row",
-			Penalty:     PenaltyCorrelatedSubq,
+			Penalty:     PenaltyCorrelatedSubq(),
 			Category:    "efficiency",
 		})
-		ds.Score += PenaltyCorrelatedSubq
+		ds.Score += PenaltyCorrelatedSubq()
 	}
 }
 
@@ -195,10 +193,10 @@ func (s *EfficiencyScorer) checkExprForNonSargable(node *pg_query.Node, ds *Dime
 			ds.Findings = append(ds.Findings, Finding{
 				Rule:        "non-sargable",
 				Description: "Function " + strings.ToUpper(displayName) + "() on column prevents index usage",
-				Penalty:     PenaltyNonSargable,
+				Penalty:     PenaltyNonSargable(),
 				Category:    "efficiency",
 			})
-			ds.Score += PenaltyNonSargable
+			ds.Score += PenaltyNonSargable()
 		}
 	}
 }
@@ -220,10 +218,10 @@ func (s *EfficiencyScorer) checkDistinctDedup(sel *pg_query.SelectStmt, ds *Dime
 		ds.Findings = append(ds.Findings, Finding{
 			Rule:        "distinct-dedup",
 			Description: "DISTINCT with JOIN suggests join produces duplicates — fix the join or use GROUP BY",
-			Penalty:     PenaltyDistinctDedup,
+			Penalty:     PenaltyDistinctDedup(),
 			Category:    "efficiency",
 		})
-		ds.Score += PenaltyDistinctDedup
+		ds.Score += PenaltyDistinctDedup()
 	}
 }
 

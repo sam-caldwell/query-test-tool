@@ -220,8 +220,8 @@ func TestEfficiency_Penalties(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Efficiency.Score != PenaltySelectStar {
-		t.Errorf("select star penalty: got %d, want %d", report.Efficiency.Score, PenaltySelectStar)
+	if report.Efficiency.Score != PenaltySelectStar() {
+		t.Errorf("select star penalty: got %d, want %d", report.Efficiency.Score, PenaltySelectStar())
 	}
 }
 

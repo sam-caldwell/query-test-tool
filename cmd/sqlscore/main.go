@@ -11,12 +11,19 @@ import (
 	"github.com/sqlscore/scorer"
 )
 
+// Set via -ldflags at build time.
+var (
+	version = "dev"
+	commit  = "unknown"
+)
+
 func main() {
 	var (
-		query    string
-		file     string
-		format   string
-		verbose  bool
+		query       string
+		file        string
+		format      string
+		verbose     bool
+		showVersion bool
 	)
 
 	flag.StringVar(&query, "query", "", "SQL query to score (alternative to stdin)")
@@ -26,6 +33,7 @@ func main() {
 	flag.StringVar(&format, "format", "text", "Output format: text or json")
 	flag.BoolVar(&verbose, "verbose", false, "Show detailed findings")
 	flag.BoolVar(&verbose, "v", false, "Show detailed findings (shorthand)")
+	flag.BoolVar(&showVersion, "version", false, "Show version and weights info")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: sqlscore [options] [SQL]\n\n")
@@ -39,6 +47,13 @@ func main() {
 	}
 
 	flag.Parse()
+
+	if showVersion {
+		w := scorer.Weights()
+		fmt.Printf("sqlscore %s (%s)\n", version, commit)
+		fmt.Printf("Weights: version %d — %s\n", w.Version, w.Description)
+		os.Exit(0)
+	}
 
 	sql, err := resolveInput(query, file, flag.Args())
 	if err != nil {

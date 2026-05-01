@@ -6,15 +6,13 @@ import (
 	"github.com/sqlscore/parser"
 )
 
-// Cognitive complexity penalty weights.
-const (
-	PenaltySubqueryNesting  = 3 // per nesting level
-	PenaltyJoin             = 2 // per join
-	PenaltyBooleanNesting   = 2 // per nested boolean expr
-	PenaltyCTE              = 2 // per CTE
-	PenaltyCaseExpr         = 2 // per CASE expression
-	PenaltySetOperation     = 3 // UNION/INTERSECT/EXCEPT
-)
+// Cognitive complexity penalty accessors — values loaded from embedded weights.json.
+func PenaltySubqueryNesting() int { return Weight("subquery-nesting") }
+func PenaltyJoin() int            { return Weight("join") }
+func PenaltyBooleanNesting() int  { return Weight("boolean-nesting") }
+func PenaltyCTE() int             { return Weight("cte") }
+func PenaltyCaseExpr() int        { return Weight("case-expression") }
+func PenaltySetOperation() int    { return Weight("set-operation") }
 
 // CognitiveScorer adapts a cyclomatic-style metric to SQL readability.
 type CognitiveScorer struct{}
@@ -56,7 +54,7 @@ func (s *CognitiveScorer) scoreSelect(sel *pg_query.SelectStmt, subqueryDepth in
 
 	// Set operations (UNION, INTERSECT, EXCEPT).
 	if sel.Op != pg_query.SetOperation_SETOP_NONE {
-		penalty := PenaltySetOperation
+		penalty := PenaltySetOperation()
 		ds.Findings = append(ds.Findings, Finding{
 			Rule:        "set-operation",
 			Description: "Set operation (UNION/INTERSECT/EXCEPT) adds cognitive complexity",
@@ -94,10 +92,10 @@ func (s *CognitiveScorer) scoreSelect(sel *pg_query.SelectStmt, subqueryDepth in
 			ds.Findings = append(ds.Findings, Finding{
 				Rule:        "cte",
 				Description: "Common Table Expression adds a named scope to understand",
-				Penalty:     PenaltyCTE,
+				Penalty:     PenaltyCTE(),
 				Category:    "cognitive_complexity",
 			})
-			ds.Score += PenaltyCTE
+			ds.Score += PenaltyCTE()
 			// Score the CTE body.
 			if cteNode, ok := cte.Node.(*pg_query.Node_CommonTableExpr); ok {
 				s.scoreNode(cteNode.CommonTableExpr.Ctequery, subqueryDepth+1, ds)
@@ -139,10 +137,10 @@ func (s *CognitiveScorer) countJoins(node *pg_query.Node, ds *DimensionScore) {
 		ds.Findings = append(ds.Findings, Finding{
 			Rule:        "join",
 			Description: "Each JOIN adds a relationship to reason about",
-			Penalty:     PenaltyJoin,
+			Penalty:     PenaltyJoin(),
 			Category:    "cognitive_complexity",
 		})
-		ds.Score += PenaltyJoin
+		ds.Score += PenaltyJoin()
 		// Recurse into nested joins.
 		s.countJoins(j.JoinExpr.Larg, ds)
 		s.countJoins(j.JoinExpr.Rarg, ds)
@@ -155,7 +153,7 @@ func (s *CognitiveScorer) scoreBooleanNesting(node *pg_query.Node, depth int, ds
 	}
 	if b, ok := node.Node.(*pg_query.Node_BoolExpr); ok {
 		if depth > 0 {
-			penalty := PenaltyBooleanNesting * depth
+			penalty := PenaltyBooleanNesting() * depth
 			ds.Findings = append(ds.Findings, Finding{
 				Rule:        "boolean-nesting",
 				Description: "Nested boolean expression increases cognitive load",
@@ -179,10 +177,10 @@ func (s *CognitiveScorer) scoreCaseExprs(node *pg_query.Node, ds *DimensionScore
 			ds.Findings = append(ds.Findings, Finding{
 				Rule:        "case-expression",
 				Description: "CASE expression adds conditional branching logic",
-				Penalty:     PenaltyCaseExpr,
+				Penalty:     PenaltyCaseExpr(),
 				Category:    "cognitive_complexity",
 			})
-			ds.Score += PenaltyCaseExpr
+			ds.Score += PenaltyCaseExpr()
 		}
 		return true
 	})
@@ -195,7 +193,7 @@ func (s *CognitiveScorer) scoreSubqueries(node *pg_query.Node, parentDepth int, 
 	parser.Walk(node, 0, func(n *pg_query.Node, depth int) bool {
 		if sl, ok := n.Node.(*pg_query.Node_SubLink); ok {
 			newDepth := parentDepth + 1
-			penalty := PenaltySubqueryNesting * newDepth
+			penalty := PenaltySubqueryNesting() * newDepth
 			ds.Findings = append(ds.Findings, Finding{
 				Rule:        "subquery-nesting",
 				Description: "Subquery at nesting depth increases complexity",
@@ -220,7 +218,7 @@ func (s *CognitiveScorer) scoreFromSubqueries(node *pg_query.Node, parentDepth i
 	switch v := node.Node.(type) {
 	case *pg_query.Node_RangeSubselect:
 		newDepth := parentDepth + 1
-		penalty := PenaltySubqueryNesting * newDepth
+		penalty := PenaltySubqueryNesting() * newDepth
 		ds.Findings = append(ds.Findings, Finding{
 			Rule:        "subquery-nesting",
 			Description: "Derived table (subquery in FROM) at nesting depth increases complexity",

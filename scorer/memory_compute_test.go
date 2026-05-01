@@ -174,8 +174,8 @@ func TestMemoryCompute_CleanQuery(t *testing.T) {
 func TestMemoryCompute_Penalties(t *testing.T) {
 	// Verify unbounded sort penalty
 	report, _ := ScoreQuery("SELECT id FROM users ORDER BY id")
-	if report.MemoryCompute.Score != PenaltyUnboundedSort {
-		t.Errorf("unbounded sort penalty: got %d, want %d", report.MemoryCompute.Score, PenaltyUnboundedSort)
+	if report.MemoryCompute.Score != PenaltyUnboundedSort() {
+		t.Errorf("unbounded sort penalty: got %d, want %d", report.MemoryCompute.Score, PenaltyUnboundedSort())
 	}
 }
 

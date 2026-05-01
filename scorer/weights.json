@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "description": "Default scoring weights. Replace with calibrated values by running cmd/calibrate.",
+  "weights": {
+    "select-star": 5,
+    "missing-predicate": 10,
+    "correlated-subquery": 15,
+    "non-sargable": 10,
+    "distinct-dedup": 8,
+    "unbounded-sort": 8,
+    "group-by-fanout": 5,
+    "window-function": 6,
+    "window-no-partition-extra": 4,
+    "cartesian-product": 15,
+    "subquery-nesting": 3,
+    "join": 2,
+    "boolean-nesting": 2,
+    "cte": 2,
+    "case-expression": 2,
+    "set-operation": 3
+  }
+}

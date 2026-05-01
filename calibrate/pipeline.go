@@ -204,8 +204,41 @@ func (p *Pipeline) All(ctx context.Context) (*CalibratedWeights, error) {
 	return p.Calculate(ctx)
 }
 
-// WriteWeightsJSON writes calibrated weights to a JSON file.
+// WeightsFileFormat is the JSON format expected by scorer/weights.go for embedding.
+type WeightsFileFormat struct {
+	Version     int            `json:"version"`
+	Description string         `json:"description"`
+	RSquared    float64        `json:"r_squared"`
+	SampleSize  int            `json:"sample_size"`
+	GeneratedAt string         `json:"generated_at"`
+	Weights     map[string]int `json:"weights"`
+}
+
+// WriteWeightsJSON writes calibrated weights to the scorer/weights.json format.
+// This file is embedded at build time by cmd/sqlscore via go:embed.
 func WriteWeightsJSON(weights *CalibratedWeights, path string) error {
+	// Convert float64 weights to int (rounded)
+	intWeights := make(map[string]int)
+	for rule, w := range weights.Weights {
+		if rule == "intercept" {
+			continue
+		}
+		rounded := int(w + 0.5)
+		if rounded < 0 {
+			rounded = 0
+		}
+		intWeights[rule] = rounded
+	}
+
+	out := WeightsFileFormat{
+		Version:     1,
+		Description: fmt.Sprintf("Calibrated weights from %d samples (R²=%.4f)", weights.SampleSize, weights.RSquared),
+		RSquared:    weights.RSquared,
+		SampleSize:  weights.SampleSize,
+		GeneratedAt: weights.GeneratedAt.Format("2006-01-02T15:04:05Z"),
+		Weights:     intWeights,
+	}
+
 	f, err := os.Create(path)
 	if err != nil {
 		return err
@@ -214,5 +247,5 @@ func WriteWeightsJSON(weights *CalibratedWeights, path string) error {
 
 	enc := json.NewEncoder(f)
 	enc.SetIndent("", "  ")
-	return enc.Encode(weights)
+	return enc.Encode(out)
 }
