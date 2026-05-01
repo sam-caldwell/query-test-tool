@@ -29,8 +29,6 @@ jobs:
 
       - name: Govulncheck
         uses: golang/govulncheck-action@v1
-        with:
-          go-version-file: go.mod
 
   test:
     name: Test
@@ -70,12 +68,17 @@ jobs:
 
   build:
     name: Build
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     needs: test
     strategy:
       matrix:
-        goos: [linux, darwin, windows]
-        goarch: [amd64, arm64]
+        include:
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+          - os: macos-latest
+            goos: darwin
+            goarch: arm64
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -85,19 +88,14 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Build sqlscore
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
+      - name: Build
         run: |
           VERSION=$(cat VERSION)
           COMMIT=$(git rev-parse --short HEAD)
-          EXT=""
-          if [ "$GOOS" = "windows" ]; then EXT=".exe"; fi
           go build -ldflags "-X main.version=${VERSION} -X main.commit=${COMMIT}" \
-            -o bin/sqlscore-${GOOS}-${GOARCH}${EXT} ./cmd/sqlscore
+            -o bin/sqlscore-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/sqlscore
           go build -ldflags "-X main.version=${VERSION} -X main.commit=${COMMIT}" \
-            -o bin/calibrate-${GOOS}-${GOARCH}${EXT} ./cmd/calibrate
+            -o bin/calibrate-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/calibrate
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
