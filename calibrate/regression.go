@@ -63,7 +63,9 @@ func CalculateWeights(rows []RegressionRow) (*CalibratedWeights, error) {
 		}
 	}
 
-	// Compute X^T X (p×p matrix)
+	// Compute X^T X (p×p matrix) with ridge regularization (λ = 0.01)
+	// Ridge prevents singularity when features are sparse/collinear.
+	lambda := 0.01
 	XtX := make([][]float64, p)
 	for i := range XtX {
 		XtX[i] = make([]float64, p)
@@ -75,6 +77,10 @@ func CalculateWeights(rows []RegressionRow) (*CalibratedWeights, error) {
 				sum += X[k][i] * X[k][j]
 			}
 			XtX[i][j] = sum
+		}
+		// Add λ·n to diagonal (skip intercept at index 0)
+		if i > 0 {
+			XtX[i][i] += lambda * float64(n)
 		}
 	}
 

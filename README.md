@@ -118,6 +118,50 @@ for _, f := range report.Efficiency.Findings {
 }
 ```
 
+## Weight Calibration
+
+The `calibrate` tool determines optimal scoring weights empirically by running queries against PostgreSQL with EXPLAIN ANALYZE.
+
+### How it works
+
+1. **Generate 10,000 schemas** — 5 domain archetypes (e-commerce, blog, HR, inventory, analytics) × systematically applied mutations (dropped indexes, widened tables, removed FKs, textified columns)
+2. **Generate 1,000,000 queries** — 18 query templates per antipattern, parameterized per schema
+3. **Run EXPLAIN ANALYZE** — concurrent execution against optimal and degraded schemas
+4. **OLS regression** — fits `log(cost_ratio) = Σ βᵢ × finding_count_i` to derive weights
+
+### Usage
+
+```bash
+# Prerequisites
+createdb sqlscore_calibrate
+
+# Run full pipeline
+go run ./cmd/calibrate -dsn "postgres://localhost:5432/sqlscore_calibrate?sslmode=disable"
+
+# Or run phases independently
+go run ./cmd/calibrate -phase init
+go run ./cmd/calibrate -phase generate -schemas 1000 -queries 100000 -rows 500
+go run ./cmd/calibrate -phase run -workers 16
+go run ./cmd/calibrate -phase calculate -output weights.json
+```
+
+### Output
+
+```json
+{
+  "weights": {
+    "select-star": 4.82,
+    "non-sargable": 12.34,
+    "cartesian-product": 18.91,
+    ...
+  },
+  "r_squared": 0.73,
+  "sample_size": 1847293
+}
+```
+
+See [docs/calibration.md](docs/calibration.md) for methodology details.
+
 ## Testing
 
 ```bash

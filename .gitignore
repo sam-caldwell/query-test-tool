@@ -1,0 +1,19 @@
+# Binaries
+/sqlscore
+/calibrate
+*.exe
+
+# Test artifacts
+*.out
+coverage.html
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+
+# Calibration output
+calibrated_weights.json
