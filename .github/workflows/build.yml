@@ -61,7 +61,7 @@ jobs:
 
       - name: Upload Coverage
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage
           path: coverage.out
@@ -98,7 +98,7 @@ jobs:
             -o bin/calibrate-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/calibrate
 
       - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: binaries-${{ matrix.goos }}-${{ matrix.goarch }}
           path: bin/
