@@ -76,9 +76,9 @@ jobs:
           - os: ubuntu-latest
             goos: linux
             goarch: amd64
-          - os: macos-latest
+          - os: macos-13
             goos: darwin
-            goarch: arm64
+            goarch: amd64
     steps:
       - name: Checkout
         uses: actions/checkout@v4
