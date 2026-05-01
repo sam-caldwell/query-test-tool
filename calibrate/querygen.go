@@ -119,7 +119,7 @@ func (qg *QueryGenerator) allTemplates(d Domain) []queryTempl {
 				rules:     []string{"non-sargable"},
 				gen: func(rng *rand.Rand) string {
 					col := cols[rng.Intn(len(cols))]
-					fn := nonsargableFunc(col.Type)
+					fn := nonsargableFunc(col.Type, rng)
 					return fmt.Sprintf("SELECT * FROM %s WHERE %s(%s) = %s",
 						t.Name, fn, col.Name, sampleValue(col.Type, rng))
 				},
@@ -340,20 +340,20 @@ func (qg *QueryGenerator) allTemplates(d Domain) []queryTempl {
 	return tmpls
 }
 
-func nonsargableFunc(colType string) string {
+func nonsargableFunc(colType string, rng *rand.Rand) string {
 	switch {
 	case strings.HasPrefix(colType, "VARCHAR") || colType == "TEXT":
 		funcs := []string{"LOWER", "UPPER", "TRIM", "LENGTH"}
-		return funcs[rand.Intn(len(funcs))]
+		return funcs[rng.Intn(len(funcs))]
 	case colType == "INT" || colType == "BIGINT" || colType == "SMALLINT":
 		return "ABS"
 	case strings.HasPrefix(colType, "NUMERIC"):
 		funcs := []string{"ROUND", "FLOOR", "CEIL"}
-		return funcs[rand.Intn(len(funcs))]
+		return funcs[rng.Intn(len(funcs))]
 	case colType == "DATE" || colType == "TIMESTAMPTZ" || colType == "TIMESTAMP":
-		return "DATE_TRUNC"
+		return "EXTRACT"
 	default:
-		return "CAST"
+		return "LENGTH"
 	}
 }
 
@@ -377,11 +377,4 @@ func sampleValue(colType string, rng *rand.Rand) string {
 	default:
 		return "'test'"
 	}
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

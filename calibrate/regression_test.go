@@ -207,8 +207,8 @@ func TestValidateWeights(t *testing.T) {
 }
 
 func TestRuleFeatures(t *testing.T) {
-	if len(RuleFeatures) != 15 {
-		t.Errorf("expected 15 rule features, got %d", len(RuleFeatures))
+	if len(RuleFeatures) != 16 {
+		t.Errorf("expected 16 rule features, got %d", len(RuleFeatures))
 	}
 
 	seen := make(map[string]bool)

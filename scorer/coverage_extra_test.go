@@ -148,3 +148,40 @@ func TestChildren_IntegerLeaf(t *testing.T) {
 		t.Error("Integer should have no children")
 	}
 }
+
+func TestWeights_Loaded(t *testing.T) {
+	w := Weights()
+	if w == nil {
+		t.Fatal("Weights() returned nil")
+	}
+	if w.Version == 0 && len(w.Weights) == 0 {
+		t.Error("Weights should have non-empty data")
+	}
+}
+
+func TestWeight_KnownRule(t *testing.T) {
+	w := Weight("select-star")
+	if w <= 0 {
+		t.Errorf("Weight(select-star) = %d, want > 0", w)
+	}
+}
+
+func TestWeight_UnknownRule(t *testing.T) {
+	w := Weight("nonexistent-rule-xyz")
+	if w != 0 {
+		t.Errorf("Weight(nonexistent) = %d, want 0", w)
+	}
+}
+
+func TestDefaultWeights(t *testing.T) {
+	dw := defaultWeights()
+	if dw == nil {
+		t.Fatal("defaultWeights returned nil")
+	}
+	if len(dw.Weights) == 0 {
+		t.Error("defaultWeights should have entries")
+	}
+	if dw.Weights["select-star"] != 5 {
+		t.Errorf("default select-star = %d, want 5", dw.Weights["select-star"])
+	}
+}

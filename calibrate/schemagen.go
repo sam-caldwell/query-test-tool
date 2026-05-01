@@ -52,10 +52,8 @@ func (sg *SchemaGenerator) GenerateAll(targetSchemas int) []SchemaFamilyPlan {
 			ddl := GenerateDDL(degraded, schemaName)
 
 			var mutNames []string
-			var mutRules []string
 			for _, m := range mutationSet {
 				mutNames = append(mutNames, m.Name)
-				mutRules = append(mutRules, m.Rules...)
 			}
 
 			plan.Variants = append(plan.Variants, SchemaInstance{

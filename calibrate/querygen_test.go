@@ -119,6 +119,7 @@ func TestQueryGenerator_ValidSQL(t *testing.T) {
 }
 
 func TestNonsargableFunc(t *testing.T) {
+	rng := rand.New(rand.NewSource(42))
 	tests := []struct {
 		colType  string
 		wantFunc string
@@ -127,12 +128,12 @@ func TestNonsargableFunc(t *testing.T) {
 		{"TEXT", ""},
 		{"INT", "ABS"},
 		{"NUMERIC(10,2)", ""},
-		{"DATE", "DATE_TRUNC"},
-		{"TIMESTAMPTZ", "DATE_TRUNC"},
+		{"DATE", "EXTRACT"},
+		{"TIMESTAMPTZ", "EXTRACT"},
 	}
 
 	for _, tt := range tests {
-		got := nonsargableFunc(tt.colType)
+		got := nonsargableFunc(tt.colType, rng)
 		if tt.wantFunc != "" && got != tt.wantFunc {
 			t.Errorf("nonsargableFunc(%q) = %q, want %q", tt.colType, got, tt.wantFunc)
 		}
@@ -153,17 +154,6 @@ func TestSampleValue(t *testing.T) {
 	}
 }
 
-func TestMin(t *testing.T) {
-	if min(3, 5) != 3 {
-		t.Error("min(3,5) != 3")
-	}
-	if min(7, 2) != 2 {
-		t.Error("min(7,2) != 2")
-	}
-	if min(4, 4) != 4 {
-		t.Error("min(4,4) != 4")
-	}
-}
 
 func TestQueryGenerator_EmptyDomain(t *testing.T) {
 	qg := NewQueryGenerator(42)

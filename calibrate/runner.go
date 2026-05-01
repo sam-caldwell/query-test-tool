@@ -6,7 +6,6 @@ import (
 	"log"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/sqlscore/scorer"
 )
@@ -155,7 +154,5 @@ func (r *Runner) RunFamilyBatch(ctx context.Context, familyID int) (int, error) 
 // ProgressLogger is a simple progress callback.
 func ProgressLogger(done, total int64) {
 	pct := float64(done) / float64(total) * 100
-	elapsed := time.Since(time.Now()) // placeholder
-	_ = elapsed
 	log.Printf("Progress: %d/%d (%.1f%%)", done, total, pct)
 }

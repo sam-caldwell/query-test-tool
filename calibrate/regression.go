@@ -16,6 +16,7 @@ var RuleFeatures = []string{
 	"unbounded-sort",
 	"group-by-fanout",
 	"window-function",
+	"window-no-partition-extra",
 	"cartesian-product",
 	"subquery-nesting",
 	"join",
