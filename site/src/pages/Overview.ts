@@ -1,10 +1,6 @@
-import {createElement, useHead} from '@asymmetric-effort/specifyjs';
+import {createElement} from '@asymmetric-effort/specifyjs';
 
 export function Overview() {
-    useHead({
-        title: 'sqlscore — Overview',
-        description: 'SQL query scoring across efficiency, memory/compute cost, and cognitive complexity.',
-    });
 
     return createElement('div', null,
         createElement('h1', null, 'sqlscore'),

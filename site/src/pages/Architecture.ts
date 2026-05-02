@@ -1,10 +1,6 @@
-import {createElement, useHead} from '@asymmetric-effort/specifyjs';
+import {createElement} from '@asymmetric-effort/specifyjs';
 
 export function Architecture() {
-    useHead({
-        title: 'sqlscore — Architecture',
-        description: 'System design and architecture of the sqlscore SQL query scoring tool.',
-    });
 
     return createElement('div', null,
         createElement('h1', null, 'Architecture'),

@@ -1,10 +1,6 @@
-import {createElement, useHead} from '@asymmetric-effort/specifyjs';
+import {createElement} from '@asymmetric-effort/specifyjs';
 
 export function Usage() {
-    useHead({
-        title: 'sqlscore — Usage',
-        description: 'How to use the sqlscore CLI to score SQL queries.',
-    });
 
     return createElement('div', null,
         createElement('h1', null, 'Usage'),

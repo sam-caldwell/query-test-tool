@@ -1,10 +1,6 @@
-import {createElement, useHead} from '@asymmetric-effort/specifyjs';
+import {createElement} from '@asymmetric-effort/specifyjs';
 
 export function Installation() {
-    useHead({
-        title: 'sqlscore — Installation',
-        description: 'How to install the sqlscore SQL query scoring tool.',
-    });
 
     return createElement('div', null,
         createElement('h1', null, 'Installation'),

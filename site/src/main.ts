@@ -2,5 +2,12 @@ import {createElement} from '@asymmetric-effort/specifyjs';
 import {createRoot} from '@asymmetric-effort/specifyjs/dom';
 import {App} from './App';
 
-const root = createRoot(document.getElementById('root')!);
-root.render(createElement(App, null));
+const container = document.getElementById('root')!;
+const root = createRoot(container);
+
+function render() {
+    root.render(createElement(App, null));
+}
+
+render();
+window.addEventListener('hashchange', render);

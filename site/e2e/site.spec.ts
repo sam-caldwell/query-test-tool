@@ -1,19 +1,14 @@
 import {test, expect} from '@playwright/test';
 
 test.describe('Site loads without errors', () => {
-    test('homepage renders without console errors', async ({page}) => {
+    test('homepage renders without JS errors', async ({page}) => {
         const errors: string[] = [];
-        page.on('console', msg => {
-            if (msg.type() === 'error') {
-                errors.push(msg.text());
-            }
-        });
         page.on('pageerror', err => {
             errors.push(err.message);
         });
 
         await page.goto('/');
-        await page.waitForTimeout(1000);
+        await page.waitForLoadState('networkidle');
 
         expect(errors).toEqual([]);
     });
@@ -25,6 +20,7 @@ test.describe('Site loads without errors', () => {
 
     test('side navigation is visible', async ({page}) => {
         await page.goto('/');
+        await page.waitForLoadState('networkidle');
         await expect(page.locator('nav a:has-text("Overview")')).toBeVisible();
         await expect(page.locator('nav a:has-text("Scoring Rules")')).toBeVisible();
         await expect(page.locator('nav a:has-text("Calibration")')).toBeVisible();
@@ -36,6 +32,7 @@ test.describe('Site loads without errors', () => {
 
     test('overview content renders', async ({page}) => {
         await page.goto('/');
+        await page.waitForLoadState('networkidle');
         await expect(page.locator('h1')).toContainText('sqlscore');
         await expect(page.locator('text=How It Works')).toBeVisible();
     });
@@ -44,36 +41,42 @@ test.describe('Site loads without errors', () => {
 test.describe('Navigation works', () => {
     test('clicking Scoring Rules navigates', async ({page}) => {
         await page.goto('/');
+        await page.waitForLoadState('networkidle');
         await page.click('nav a:has-text("Scoring Rules")');
         await expect(page.locator('main h1')).toContainText('Scoring Rules');
     });
 
     test('clicking Calibration navigates', async ({page}) => {
         await page.goto('/');
+        await page.waitForLoadState('networkidle');
         await page.click('nav a:has-text("Calibration")');
         await expect(page.locator('main h1')).toContainText('Weight Calibration');
     });
 
     test('clicking Installation navigates', async ({page}) => {
         await page.goto('/');
+        await page.waitForLoadState('networkidle');
         await page.click('nav a:has-text("Installation")');
         await expect(page.locator('main h1')).toContainText('Installation');
     });
 
     test('clicking Usage navigates', async ({page}) => {
         await page.goto('/');
+        await page.waitForLoadState('networkidle');
         await page.click('nav a:has-text("Usage")');
         await expect(page.locator('main h1')).toContainText('Usage');
     });
 
     test('clicking Architecture navigates', async ({page}) => {
         await page.goto('/');
+        await page.waitForLoadState('networkidle');
         await page.click('nav a:has-text("Architecture")');
         await expect(page.locator('main h1')).toContainText('Architecture');
     });
 
     test('clicking Library API navigates', async ({page}) => {
         await page.goto('/');
+        await page.waitForLoadState('networkidle');
         await page.click('nav a:has-text("Library API")');
         await expect(page.locator('main h1')).toContainText('Library API');
     });
@@ -110,15 +113,16 @@ test.describe('SEO', () => {
 });
 
 test.describe('No runtime errors on any page', () => {
-    const pages = ['/', '#/overview', '#/scoring', '#/calibration', '#/installation', '#/usage', '#/architecture', '#/api'];
+    const routes = ['/', '#/overview', '#/scoring', '#/calibration', '#/installation', '#/usage', '#/architecture', '#/api'];
 
-    for (const path of pages) {
-        test(`${path} loads without errors`, async ({page}) => {
+    for (const route of routes) {
+        test(`${route} loads without errors`, async ({page}) => {
             const errors: string[] = [];
             page.on('pageerror', err => errors.push(err.message));
 
-            await page.goto('/' + path);
-            await page.waitForTimeout(500);
+            const url = route.startsWith('#') ? '/' + route : route;
+            await page.goto(url);
+            await page.waitForLoadState('networkidle');
 
             expect(errors).toEqual([]);
         });

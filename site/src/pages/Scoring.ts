@@ -1,10 +1,6 @@
-import {createElement, useHead} from '@asymmetric-effort/specifyjs';
+import {createElement} from '@asymmetric-effort/specifyjs';
 
 export function Scoring() {
-    useHead({
-        title: 'sqlscore — Scoring Rules',
-        description: 'Detailed scoring rules for SQL query efficiency, memory/compute, and cognitive complexity.',
-    });
 
     return createElement('div', null,
         createElement('h1', null, 'Scoring Rules'),

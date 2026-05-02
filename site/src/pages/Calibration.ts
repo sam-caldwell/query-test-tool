@@ -1,10 +1,6 @@
-import {createElement, useHead} from '@asymmetric-effort/specifyjs';
+import {createElement} from '@asymmetric-effort/specifyjs';
 
 export function Calibration() {
-    useHead({
-        title: 'sqlscore — Weight Calibration',
-        description: 'How sqlscore derives scoring weights empirically from EXPLAIN ANALYZE.',
-    });
 
     return createElement('div', null,
         createElement('h1', null, 'Weight Calibration'),

@@ -1,10 +1,6 @@
-import {createElement, useHead} from '@asymmetric-effort/specifyjs';
+import {createElement} from '@asymmetric-effort/specifyjs';
 
 export function Api() {
-    useHead({
-        title: 'sqlscore — Library API',
-        description: 'Using sqlscore as a Go library for programmatic SQL scoring.',
-    });
 
     return createElement('div', null,
         createElement('h1', null, 'Library API'),
