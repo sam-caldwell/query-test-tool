@@ -27,6 +27,11 @@ type RunJob struct {
 	SchemaInstance SchemaInstance
 }
 
+// maxDegradedPerQuery limits how many degraded schemas each query runs against.
+// Running every query against every schema is O(queries × schemas) which is too large.
+// Instead we run each query against the optimal + a sample of degraded schemas.
+const maxDegradedPerQuery = 5
+
 // RunAll executes all queries against their family's schema instances.
 func (r *Runner) RunAll(ctx context.Context, families []SchemaFamily, progress func(done, total int64)) error {
 	// Build work items
@@ -37,14 +42,38 @@ func (r *Runner) RunAll(ctx context.Context, families []SchemaFamily, progress f
 			return fmt.Errorf("loading schemas for family %d: %w", fam.ID, err)
 		}
 
+		// Separate optimal from degraded
+		var optimal []SchemaInstance
+		var degraded []SchemaInstance
+		for _, s := range schemas {
+			if s.IsOptimal {
+				optimal = append(optimal, s)
+			} else {
+				degraded = append(degraded, s)
+			}
+		}
+
 		queries, err := r.db.GetQueriesForFamily(ctx, fam.ID)
 		if err != nil {
 			return fmt.Errorf("loading queries for family %d: %w", fam.ID, err)
 		}
 
-		for _, q := range queries {
-			for _, s := range schemas {
+		for qi, q := range queries {
+			// Always run against optimal
+			for _, s := range optimal {
 				jobs = append(jobs, RunJob{Query: q, SchemaInstance: s})
+			}
+			// Run against a rotating sample of degraded schemas
+			if len(degraded) > 0 {
+				sampleSize := maxDegradedPerQuery
+				if sampleSize > len(degraded) {
+					sampleSize = len(degraded)
+				}
+				start := (qi * sampleSize) % len(degraded)
+				for i := 0; i < sampleSize; i++ {
+					idx := (start + i) % len(degraded)
+					jobs = append(jobs, RunJob{Query: q, SchemaInstance: degraded[idx]})
+				}
 			}
 		}
 	}

@@ -26,6 +26,102 @@ var RuleFeatures = []string{
 	"set-operation",
 }
 
+// CalculateWeightsDirect computes weights by averaging cost ratios per rule.
+// This is more robust than OLS when the data comes from paired comparisons.
+// Weight = median(cost_ratio - 1) × scaling_factor for each rule.
+func CalculateWeightsDirect(rows []RegressionRow) (*CalibratedWeights, error) {
+	if len(rows) == 0 {
+		return nil, fmt.Errorf("no calibration data")
+	}
+
+	// Group cost ratios by the primary rule they exercise
+	ratiosByRule := make(map[string][]float64)
+	for _, row := range rows {
+		if row.CostRatio <= 0 {
+			continue
+		}
+		// The primary rule is from the query's target_rules (stored in Mutations field from paired query)
+		for _, rule := range row.Mutations {
+			ratiosByRule[rule] = append(ratiosByRule[rule], row.CostRatio)
+		}
+	}
+
+	weights := make(map[string]float64)
+	totalSamples := 0
+	for _, rule := range RuleFeatures {
+		ratios := ratiosByRule[rule]
+		if len(ratios) == 0 {
+			weights[rule] = 1.0 // default minimal weight
+			continue
+		}
+		totalSamples += len(ratios)
+
+		// Use median cost ratio for robustness against outliers
+		sortFloat64s(ratios)
+		median := ratios[len(ratios)/2]
+
+		// Convert ratio to weight: ratio of 2.0 means 2x cost → weight ~10
+		// Scale so that a 10x cost ratio → weight 20, 1.5x → weight 5
+		// Formula: weight = log2(median) * 10, clamped to [1, 25]
+		w := math.Log2(median) * 10.0
+		if w < 1 {
+			w = 1
+		}
+		if w > 25 {
+			w = 25
+		}
+		weights[rule] = math.Round(w*100) / 100
+	}
+
+	// Compute R² as fraction of variance explained by rule grouping
+	var allRatios []float64
+	for _, row := range rows {
+		if row.CostRatio > 0 {
+			allRatios = append(allRatios, math.Log(row.CostRatio))
+		}
+	}
+	mean := 0.0
+	for _, v := range allRatios {
+		mean += v
+	}
+	mean /= float64(len(allRatios))
+	ssTot := 0.0
+	for _, v := range allRatios {
+		ssTot += (v - mean) * (v - mean)
+	}
+
+	// Approximate R² from group means
+	ssExplained := 0.0
+	for _, ratios := range ratiosByRule {
+		groupMean := 0.0
+		for _, r := range ratios {
+			groupMean += math.Log(r)
+		}
+		groupMean /= float64(len(ratios))
+		ssExplained += float64(len(ratios)) * (groupMean - mean) * (groupMean - mean)
+	}
+	rSquared := 0.0
+	if ssTot > 0 {
+		rSquared = ssExplained / ssTot
+	}
+
+	return &CalibratedWeights{
+		Weights:     weights,
+		RSquared:    rSquared,
+		SampleSize:  totalSamples,
+		GeneratedAt: time.Now(),
+	}, nil
+}
+
+func sortFloat64s(s []float64) {
+	// Simple insertion sort (good enough for our per-rule sample sizes)
+	for i := 1; i < len(s); i++ {
+		for j := i; j > 0 && s[j] < s[j-1]; j-- {
+			s[j], s[j-1] = s[j-1], s[j]
+		}
+	}
+}
+
 // CalculateWeights performs OLS regression on the calibration results.
 // The model: cost_ratio = β₀ + Σ βᵢ × feature_i
 // Where feature_i is the count of times rule i appears in findings.

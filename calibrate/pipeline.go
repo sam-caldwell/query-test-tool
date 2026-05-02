@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -39,14 +41,15 @@ func (p *Pipeline) Init(ctx context.Context) error {
 func (p *Pipeline) Generate(ctx context.Context) error {
 	start := time.Now()
 
-	// Phase 1: Generate schemas
-	log.Printf("Generating %d schema variants across 5 domains...", p.cfg.SchemaCount)
+	// Phase 1: Generate schemas (parallelized)
+	log.Printf("Generating %d schema variants across 5 domains (%d workers)...", p.cfg.SchemaCount, p.cfg.Workers)
 	sg := NewSchemaGenerator(time.Now().UnixNano())
 	familyPlans := sg.GenerateAll(p.cfg.SchemaCount)
 
-	totalSchemas := 0
+	var totalSchemas int64
 	var familyIDs []int
 
+	// First, register families and optimal schemas (sequential — small count)
 	for _, plan := range familyPlans {
 		familyID, err := p.db.InsertFamily(ctx, plan.Domain.Name, plan.FamilyName, plan.Description)
 		if err != nil {
@@ -61,36 +64,63 @@ func (p *Pipeline) Generate(ctx context.Context) error {
 		if err := p.db.ApplySchema(ctx, plan.Optimal.SchemaName, plan.Optimal.DDL); err != nil {
 			return fmt.Errorf("applying optimal schema: %w", err)
 		}
-		totalSchemas++
-
-		// Populate optimal schema with data
 		dg := NewDataGenerator(p.db, p.cfg)
 		if err := dg.PopulateSchema(ctx, plan.Optimal.SchemaName, plan.Domain); err != nil {
 			return fmt.Errorf("populating optimal schema %s: %w", plan.Optimal.SchemaName, err)
 		}
+		atomic.AddInt64(&totalSchemas, 1)
+	}
 
-		// Insert and apply variants
+	// Now create variants concurrently
+	type schemaJob struct {
+		familyID int
+		variant  SchemaInstance
+		domain   Domain
+	}
+
+	jobCh := make(chan schemaJob, p.cfg.Workers*2)
+	var wg sync.WaitGroup
+
+	for i := 0; i < p.cfg.Workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			dg := NewDataGenerator(p.db, p.cfg)
+			for job := range jobCh {
+				if _, err := p.db.InsertSchemaInstance(ctx, job.familyID, job.variant.SchemaName, false, job.variant.Mutations, job.variant.DDL); err != nil {
+					log.Printf("Warning: failed to insert schema %s: %v", job.variant.SchemaName, err)
+					continue
+				}
+				if err := p.db.ApplySchema(ctx, job.variant.SchemaName, job.variant.DDL); err != nil {
+					log.Printf("Warning: failed to apply schema %s: %v", job.variant.SchemaName, err)
+					continue
+				}
+				if err := dg.PopulateSchema(ctx, job.variant.SchemaName, job.domain); err != nil {
+					log.Printf("Warning: failed to populate %s: %v", job.variant.SchemaName, err)
+				}
+				n := atomic.AddInt64(&totalSchemas, 1)
+				if n%100 == 0 {
+					log.Printf("  Created %d/%d schemas...", n, p.cfg.SchemaCount)
+				}
+			}
+		}()
+	}
+
+	for i, plan := range familyPlans {
 		for _, variant := range plan.Variants {
-			if _, err := p.db.InsertSchemaInstance(ctx, familyID, variant.SchemaName, false, variant.Mutations, variant.DDL); err != nil {
-				return fmt.Errorf("inserting variant: %w", err)
-			}
-			if err := p.db.ApplySchema(ctx, variant.SchemaName, variant.DDL); err != nil {
-				log.Printf("Warning: failed to apply schema %s: %v", variant.SchemaName, err)
-				continue
-			}
-
-			// Populate with same data pattern
-			if err := dg.PopulateSchema(ctx, variant.SchemaName, plan.Domain); err != nil {
-				log.Printf("Warning: failed to populate %s: %v", variant.SchemaName, err)
-			}
-			totalSchemas++
-
-			if totalSchemas%100 == 0 {
-				log.Printf("  Created %d/%d schemas...", totalSchemas, p.cfg.SchemaCount)
+			select {
+			case jobCh <- schemaJob{familyID: familyIDs[i], variant: variant, domain: plan.Domain}:
+			case <-ctx.Done():
+				close(jobCh)
+				wg.Wait()
+				return ctx.Err()
 			}
 		}
 	}
-	log.Printf("Created %d schemas in %v", totalSchemas, time.Since(start))
+	close(jobCh)
+	wg.Wait()
+
+	log.Printf("Created %d schemas in %v", atomic.LoadInt64(&totalSchemas), time.Since(start))
 
 	// Phase 2: Generate queries
 	log.Printf("Generating %d queries...", p.cfg.QueryCount)
@@ -172,10 +202,15 @@ func (p *Pipeline) Calculate(ctx context.Context) (*CalibratedWeights, error) {
 		return nil, fmt.Errorf("no calibration results found — run the 'run' phase first")
 	}
 
-	log.Println("Calculating weights via OLS regression...")
-	weights, err := CalculateWeights(rows)
+	log.Println("Calculating weights via paired comparison...")
+	weights, err := CalculateWeightsDirect(rows)
 	if err != nil {
-		return nil, err
+		// Fall back to OLS if direct method fails
+		log.Printf("Direct method failed (%v), falling back to OLS regression...", err)
+		weights, err = CalculateWeights(rows)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Validate

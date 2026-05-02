@@ -12,19 +12,19 @@ func TestDataExpression(t *testing.T) {
 		col      ColumnDef
 		contains string
 	}{
-		{ColumnDef{Name: "email", Type: "VARCHAR(255)"}, "@example.com"},
+		{ColumnDef{Name: "email", Type: "VARCHAR(255)"}, "email_"},  // unique column uses deterministic
 		{ColumnDef{Name: "name", Type: "VARCHAR(100)"}, "name_"},
-		{ColumnDef{Name: "status", Type: "VARCHAR(20)"}, "ARRAY"},
-		{ColumnDef{Name: "price", Type: "NUMERIC(10,2)"}, "random"},
+		{ColumnDef{Name: "status", Type: "VARCHAR(20)"}, "active"},  // skewed distribution
+		{ColumnDef{Name: "price", Type: "NUMERIC(10,2)"}, "power"},  // skewed numeric
 		{ColumnDef{Name: "is_active", Type: "BOOLEAN"}, "random"},
-		{ColumnDef{Name: "created_at", Type: "TIMESTAMPTZ"}, "interval"},
+		{ColumnDef{Name: "created_at", Type: "TIMESTAMPTZ"}, "730"}, // 2-year range
 		{ColumnDef{Name: "hire_date", Type: "DATE"}, "CURRENT_DATE"},
 		{ColumnDef{Name: "id", Type: "INT"}, "random"},
 		{ColumnDef{Name: "properties", Type: "JSONB"}, "jsonb_build_object"},
 	}
 
 	for _, tt := range tests {
-		expr := dataExpression(tt.col, 1000, domain, domain.Tables[0])
+		expr := dataExpression(tt.col, 1000, 1000, domain, domain.Tables[0])
 		if !strings.Contains(expr, tt.contains) {
 			t.Errorf("dataExpression(%s, %s) = %q, expected to contain %q",
 				tt.col.Name, tt.col.Type, expr, tt.contains)
@@ -40,7 +40,7 @@ func TestTextExpression(t *testing.T) {
 		{"email", "@example.com"},
 		{"name", "name_"},
 		{"title", "name_"},
-		{"status", "ARRAY"},
+		{"status", "active"},
 		{"url", "https://"},
 		{"country", "ARRAY"},
 		{"type", "ARRAY"},

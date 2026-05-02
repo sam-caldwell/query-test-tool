@@ -23,6 +23,8 @@ func AllMutationDefs() []MutationDef {
 		widenTable(),
 		textifyColumn(),
 		removeNotNull(),
+		denormalizeTable(),
+		addRedundantColumns(),
 	}
 }
 
@@ -213,9 +215,10 @@ func widenTable() MutationDef {
 						Apply: func(d *Domain) {
 							for i := range d.Tables {
 								if d.Tables[i].Name == tableCopy {
+									baseOffset := len(d.Tables[i].Columns)
 									for j := 0; j < n; j++ {
 										d.Tables[i].Columns = append(d.Tables[i].Columns, ColumnDef{
-											Name: fmt.Sprintf("extra_col_%d", j),
+											Name: fmt.Sprintf("extra_col_%d_%d", baseOffset, j),
 											Type: "TEXT",
 										})
 									}
@@ -237,11 +240,20 @@ func textifyColumn() MutationDef {
 		Rules:       []string{"non-sargable"},
 		Description: "Change numeric/date columns to TEXT to force type coercion",
 		Generate: func(d Domain) []Mutation {
+			// Build set of FK columns to skip (textifying breaks FK type constraints)
+			fkCols := make(map[string]bool)
+			for _, fk := range d.ForeignKeys {
+				fkCols[fk.Table+"."+fk.Column] = true
+			}
+
 			var muts []Mutation
 			for _, table := range d.Tables {
 				for _, col := range table.Columns {
 					if col.IsSerial || col.Type == "TEXT" || col.Type == "JSONB" {
 						continue
+					}
+					if fkCols[table.Name+"."+col.Name] {
+						continue // skip FK columns
 					}
 					// Only textify numeric and date types
 					if isNumericOrDate(col.Type) {
@@ -295,6 +307,108 @@ func removeNotNull() MutationDef {
 										d.Tables[i].Columns[j].NotNull = false
 									}
 								}
+								break
+							}
+						}
+					},
+				})
+			}
+			return muts
+		},
+	}
+}
+
+// denormalizeTable merges a child table's columns into the parent table,
+// simulating denormalization. This creates wider tables with redundant data.
+func denormalizeTable() MutationDef {
+	return MutationDef{
+		Name:        "denormalize",
+		Rules:       []string{"select-star", "non-sargable"},
+		Description: "Merge child table columns into parent (denormalization)",
+		Generate: func(d Domain) []Mutation {
+			var muts []Mutation
+			for _, fk := range d.ForeignKeys {
+				fkCopy := fk
+				// Find the child table and parent table
+				var childTable, parentTable *TableDef
+				for i := range d.Tables {
+					if d.Tables[i].Name == fkCopy.Table {
+						childTable = &d.Tables[i]
+					}
+					if d.Tables[i].Name == fkCopy.RefTable {
+						parentTable = &d.Tables[i]
+					}
+				}
+				if childTable == nil || parentTable == nil {
+					continue
+				}
+				if childTable.Name == parentTable.Name {
+					continue // skip self-references
+				}
+
+				muts = append(muts, Mutation{
+					Name:        fmt.Sprintf("denorm_%s_into_%s", fkCopy.Table, fkCopy.RefTable),
+					Description: fmt.Sprintf("Flatten %s columns into %s (denormalize)", fkCopy.Table, fkCopy.RefTable),
+					Rules:       []string{"select-star", "non-sargable"},
+					Apply: func(d *Domain) {
+						var srcCols []ColumnDef
+						for _, t := range d.Tables {
+							if t.Name == fkCopy.Table {
+								for _, col := range t.Columns {
+									if !col.IsSerial && col.Name != fkCopy.Column {
+										srcCols = append(srcCols, col)
+									}
+								}
+								break
+							}
+						}
+						// Add child columns to parent with prefix
+						for i := range d.Tables {
+							if d.Tables[i].Name == fkCopy.RefTable {
+								for _, col := range srcCols {
+									d.Tables[i].Columns = append(d.Tables[i].Columns, ColumnDef{
+										Name:    fkCopy.Table + "_" + col.Name,
+										Type:    col.Type,
+										NotNull: false, // denormalized columns are nullable
+									})
+								}
+								break
+							}
+						}
+					},
+				})
+			}
+			return muts
+		},
+	}
+}
+
+// addRedundantColumns adds computed/cached columns that duplicate existing data,
+// simulating a partially denormalized schema with redundant storage.
+func addRedundantColumns() MutationDef {
+	return MutationDef{
+		Name:        "redundant_cols",
+		Rules:       []string{"select-star"},
+		Description: "Add redundant computed columns (simulates cached denormalization)",
+		Generate: func(d Domain) []Mutation {
+			var muts []Mutation
+			for _, table := range d.Tables {
+				tableCopy := table.Name
+				muts = append(muts, Mutation{
+					Name:        fmt.Sprintf("redundant_%s", tableCopy),
+					Description: fmt.Sprintf("Add redundant cached columns to %s", tableCopy),
+					Rules:       []string{"select-star"},
+					Apply: func(d *Domain) {
+						for i := range d.Tables {
+							if d.Tables[i].Name == tableCopy {
+								// Add typical denormalization columns
+								d.Tables[i].Columns = append(d.Tables[i].Columns,
+									ColumnDef{Name: "cached_count", Type: "INT"},
+									ColumnDef{Name: "cached_total", Type: "NUMERIC(12,2)"},
+									ColumnDef{Name: "cached_label", Type: "TEXT"},
+									ColumnDef{Name: "last_computed_at", Type: "TIMESTAMPTZ"},
+									ColumnDef{Name: "denorm_status", Type: "VARCHAR(50)"},
+								)
 								break
 							}
 						}

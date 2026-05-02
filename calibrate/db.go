@@ -204,32 +204,43 @@ func (db *DB) InsertResult(ctx context.Context, r *ScoredResult) error {
 	return err
 }
 
-// LoadResultsForRegression loads all results paired with their optimal counterpart.
+// QueryTypePairs maps antipattern query types to their control counterparts.
+// The weight for a rule is derived from cost(antipattern) / cost(control).
+var QueryTypePairs = map[string]string{
+	"select_star":        "select_columns",
+	"non_sargable":       "sargable",
+	"unbounded_sort":     "bounded_sort",
+	"window_no_partition": "window_partitioned",
+	"exists_subquery":    "proper_join",
+	"in_subquery":        "proper_join",
+	"distinct_join":      "proper_join",
+	"cartesian":          "proper_join",
+	"group_by":           "select_columns",
+	"cte":                "select_columns",
+	"union":              "select_columns",
+	"boolean_nesting":    "sargable",
+	"case_expr":          "select_columns",
+}
+
+// LoadResultsForRegression loads paired results: antipattern queries vs control queries
+// running on the same schema. The cost ratio between them measures the antipattern's impact.
 func (db *DB) LoadResultsForRegression(ctx context.Context) ([]RegressionRow, error) {
+	// Get average cost per (query_type, schema_instance, family)
 	query := `
-		WITH optimal_costs AS (
-			SELECT q.id AS query_id, q.family_id, r.total_cost, r.actual_time_ms
+		WITH avg_costs AS (
+			SELECT q.family_id, q.query_type, r.schema_instance_id,
+				   AVG(r.total_cost) AS avg_cost,
+				   AVG(r.actual_time_ms) AS avg_time,
+				   q.target_rules,
+				   r.findings
 			FROM calibration.results r
 			JOIN calibration.queries q ON r.query_id = q.id
-			JOIN calibration.schema_instances si ON r.schema_instance_id = si.id
-			WHERE si.is_optimal = true AND r.total_cost > 0
-		),
-		degraded AS (
-			SELECT q.id AS query_id, q.family_id, r.total_cost, r.actual_time_ms,
-				   si.mutations, r.findings,
-				   r.score_total, r.score_efficiency, r.score_memory_compute, r.score_cognitive
-			FROM calibration.results r
-			JOIN calibration.queries q ON r.query_id = q.id
-			JOIN calibration.schema_instances si ON r.schema_instance_id = si.id
-			WHERE si.is_optimal = false AND r.total_cost > 0
+			WHERE r.total_cost > 0
+			GROUP BY q.family_id, q.query_type, r.schema_instance_id, q.target_rules, r.findings
 		)
-		SELECT d.query_id, d.mutations, d.findings,
-		       d.total_cost / NULLIF(o.total_cost, 0) AS cost_ratio,
-		       d.actual_time_ms / NULLIF(o.actual_time_ms, 0) AS time_ratio,
-		       d.score_total, d.score_efficiency, d.score_memory_compute, d.score_cognitive
-		FROM degraded d
-		JOIN optimal_costs o ON d.query_id = o.query_id AND d.family_id = o.family_id
-		WHERE d.total_cost / NULLIF(o.total_cost, 0) IS NOT NULL
+		SELECT family_id, query_type, schema_instance_id, avg_cost, avg_time, target_rules, findings
+		FROM avg_costs
+		ORDER BY family_id, schema_instance_id, query_type
 	`
 
 	rows, err := db.conn.QueryContext(ctx, query)
@@ -238,21 +249,61 @@ func (db *DB) LoadResultsForRegression(ctx context.Context) ([]RegressionRow, er
 	}
 	defer rows.Close()
 
-	var results []RegressionRow
+	// Collect by (family, schema) → query_type → cost
+	type key struct {
+		familyID int
+		schemaID int
+	}
+	type costEntry struct {
+		avgCost  float64
+		avgTime  float64
+		rules    []string
+		findings []string
+	}
+	costs := make(map[key]map[string]costEntry)
+
 	for rows.Next() {
-		var rr RegressionRow
-		var mutations, findings string
-		err := rows.Scan(&rr.QueryID, &mutations, &findings,
-			&rr.CostRatio, &rr.TimeRatio,
-			&rr.ScoreTotal, &rr.ScoreEfficiency, &rr.ScoreMemory, &rr.ScoreCognitive)
-		if err != nil {
+		var familyID, schemaID int
+		var queryType string
+		var avgCost, avgTime float64
+		var rulesStr, findingsStr string
+		if err := rows.Scan(&familyID, &queryType, &schemaID, &avgCost, &avgTime, &rulesStr, &findingsStr); err != nil {
 			return nil, err
 		}
-		rr.Mutations = parseArray(mutations)
-		rr.Findings = parseArray(findings)
-		results = append(results, rr)
+		k := key{familyID, schemaID}
+		if costs[k] == nil {
+			costs[k] = make(map[string]costEntry)
+		}
+		costs[k][queryType] = costEntry{avgCost, avgTime, parseArray(rulesStr), parseArray(findingsStr)}
 	}
-	return results, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Build regression rows by pairing antipattern with control
+	var results []RegressionRow
+	for _, typeCosts := range costs {
+		for antiType, controlType := range QueryTypePairs {
+			anti, hasAnti := typeCosts[antiType]
+			control, hasControl := typeCosts[controlType]
+			if !hasAnti || !hasControl || control.avgCost <= 0 {
+				continue
+			}
+			costRatio := anti.avgCost / control.avgCost
+			timeRatio := 0.0
+			if control.avgTime > 0 {
+				timeRatio = anti.avgTime / control.avgTime
+			}
+			results = append(results, RegressionRow{
+				CostRatio: costRatio,
+				TimeRatio: timeRatio,
+				Findings:  anti.findings,
+				Mutations: anti.rules,
+			})
+		}
+	}
+
+	return results, nil
 }
 
 // GetFamilySchemas returns all schema instances for a family.
