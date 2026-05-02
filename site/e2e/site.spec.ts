@@ -23,15 +23,15 @@ test.describe('Site loads without errors', () => {
         await expect(page).toHaveTitle(/sqlscore/);
     });
 
-    test('sidebar navigation is visible', async ({page}) => {
+    test('side navigation is visible', async ({page}) => {
         await page.goto('/');
-        await expect(page.locator('text=Overview')).toBeVisible();
-        await expect(page.locator('text=Scoring Rules')).toBeVisible();
-        await expect(page.locator('text=Calibration')).toBeVisible();
-        await expect(page.locator('text=Installation')).toBeVisible();
-        await expect(page.locator('text=Usage')).toBeVisible();
-        await expect(page.locator('text=Architecture')).toBeVisible();
-        await expect(page.locator('text=Library API')).toBeVisible();
+        await expect(page.locator('nav a:has-text("Overview")')).toBeVisible();
+        await expect(page.locator('nav a:has-text("Scoring Rules")')).toBeVisible();
+        await expect(page.locator('nav a:has-text("Calibration")')).toBeVisible();
+        await expect(page.locator('nav a:has-text("Installation")')).toBeVisible();
+        await expect(page.locator('nav a:has-text("Usage")')).toBeVisible();
+        await expect(page.locator('nav a:has-text("Architecture")')).toBeVisible();
+        await expect(page.locator('nav a:has-text("Library API")')).toBeVisible();
     });
 
     test('overview content renders', async ({page}) => {
@@ -44,38 +44,38 @@ test.describe('Site loads without errors', () => {
 test.describe('Navigation works', () => {
     test('clicking Scoring Rules navigates', async ({page}) => {
         await page.goto('/');
-        await page.click('text=Scoring Rules');
-        await expect(page.locator('h1')).toContainText('Scoring Rules');
+        await page.click('nav a:has-text("Scoring Rules")');
+        await expect(page.locator('main h1')).toContainText('Scoring Rules');
     });
 
     test('clicking Calibration navigates', async ({page}) => {
         await page.goto('/');
-        await page.click('text=Calibration');
-        await expect(page.locator('h1')).toContainText('Weight Calibration');
+        await page.click('nav a:has-text("Calibration")');
+        await expect(page.locator('main h1')).toContainText('Weight Calibration');
     });
 
     test('clicking Installation navigates', async ({page}) => {
         await page.goto('/');
-        await page.click('text=Installation');
-        await expect(page.locator('h1')).toContainText('Installation');
+        await page.click('nav a:has-text("Installation")');
+        await expect(page.locator('main h1')).toContainText('Installation');
     });
 
     test('clicking Usage navigates', async ({page}) => {
         await page.goto('/');
-        await page.click('text=Usage');
-        await expect(page.locator('h1')).toContainText('Usage');
+        await page.click('nav a:has-text("Usage")');
+        await expect(page.locator('main h1')).toContainText('Usage');
     });
 
     test('clicking Architecture navigates', async ({page}) => {
         await page.goto('/');
-        await page.click('text=Architecture');
-        await expect(page.locator('h1')).toContainText('Architecture');
+        await page.click('nav a:has-text("Architecture")');
+        await expect(page.locator('main h1')).toContainText('Architecture');
     });
 
     test('clicking Library API navigates', async ({page}) => {
         await page.goto('/');
-        await page.click('text=Library API');
-        await expect(page.locator('h1')).toContainText('Library API');
+        await page.click('nav a:has-text("Library API")');
+        await expect(page.locator('main h1')).toContainText('Library API');
     });
 });
 
