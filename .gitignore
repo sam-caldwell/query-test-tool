@@ -20,3 +20,4 @@ coverage.html
 calibrated_weights.json
 site/node_modules/
 site/dist/
+site/test-results/
