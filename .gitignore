@@ -18,3 +18,5 @@ coverage.html
 
 # Calibration output
 calibrated_weights.json
+site/node_modules/
+site/dist/

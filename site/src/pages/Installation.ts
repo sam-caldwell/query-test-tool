@@ -1,0 +1,51 @@
+import {createElement, useHead} from '@asymmetric-effort/specifyjs';
+
+export function Installation() {
+    useHead({
+        title: 'sqlscore — Installation',
+        description: 'How to install the sqlscore SQL query scoring tool.',
+    });
+
+    return createElement('div', null,
+        createElement('h1', null, 'Installation'),
+
+        createElement('h2', null, 'From Source'),
+        createElement('pre', {style: 'background: #1e1e1e; color: #d4d4d4; padding: 1rem; border-radius: 8px;'},
+            'git clone https://github.com/sam-caldwell/query-test-tool.git\n' +
+            'cd query-test-tool\n' +
+            'make build      # builds to bin/\n' +
+            'make install    # copies to ~/.bin/\n',
+        ),
+
+        createElement('h2', null, 'Go Install'),
+        createElement('pre', {style: 'background: #1e1e1e; color: #d4d4d4; padding: 1rem; border-radius: 8px;'},
+            'go install github.com/sqlscore/cmd/sqlscore@latest\n' +
+            'go install github.com/sqlscore/cmd/calibrate@latest\n',
+        ),
+
+        createElement('h2', null, 'Requirements'),
+        createElement('ul', null,
+            createElement('li', null, 'Go 1.21+ (cgo required for pg_query)'),
+            createElement('li', null, 'C compiler (gcc or clang)'),
+            createElement('li', null, 'PostgreSQL (for calibration only)'),
+        ),
+
+        createElement('h2', null, 'Build Targets'),
+        createElement('p', null, 'The Makefile supports:'),
+        createElement('pre', {style: 'background: #1e1e1e; color: #d4d4d4; padding: 1rem; border-radius: 8px;'},
+            'make clean     # Remove and recreate bin/\n' +
+            'make lint      # go vet + govulncheck\n' +
+            'make build     # Build binaries with embedded weights\n' +
+            'make test      # Unit → integration → e2e tests\n' +
+            'make install   # Copy to ~/.bin/\n' +
+            'make release   # Bump patch version, tag\n',
+        ),
+
+        createElement('h2', null, 'Platform Support'),
+        createElement('ul', null,
+            createElement('li', null, 'Linux amd64'),
+            createElement('li', null, 'Linux arm64'),
+            createElement('li', null, 'macOS arm64 (Apple Silicon)'),
+        ),
+    );
+}
