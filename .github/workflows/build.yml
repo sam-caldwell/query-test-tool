@@ -96,6 +96,10 @@ jobs:
           go-version-file: go.mod
 
       - name: Build
+        env:
+          # pg_query_go's vendored libpg_query redefines strchrnul which conflicts
+          # with Xcode 16.4+ SDK. Renaming via preprocessor avoids the collision.
+          CGO_CFLAGS: ${{ matrix.goos == 'darwin' && '-Dstrchrnul=pg_query_strchrnul' || '' }}
         run: |
           VERSION=$(cat VERSION)
           COMMIT=$(git rev-parse --short HEAD)
