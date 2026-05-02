@@ -29,12 +29,13 @@ export function Installation() {
         createElement('h2', null, 'Build Targets'),
         createElement('p', null, 'The Makefile supports:'),
         createElement('pre', {style: 'background: #1e1e1e; color: #d4d4d4; padding: 1rem; border-radius: 8px;'},
-            'make clean     # Remove and recreate bin/\n' +
-            'make lint      # go vet + govulncheck\n' +
-            'make build     # Build binaries with embedded weights\n' +
-            'make test      # Unit → integration → e2e tests\n' +
-            'make install   # Copy to ~/.bin/\n' +
-            'make release   # Bump patch version, tag\n',
+            'make clean      # Remove and recreate bin/\n' +
+            'make lint       # go vet + govulncheck\n' +
+            'make build      # Build using existing weights\n' +
+            'make build/full # Generate fresh weights, then build\n' +
+            'make test       # Unit → integration → e2e tests\n' +
+            'make install    # Copy to ~/.bin/\n' +
+            'make release    # Bump patch version, tag\n',
         ),
 
         createElement('h2', null, 'Platform Support'),

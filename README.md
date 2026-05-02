@@ -119,33 +119,33 @@ Total Score: 25 (fair)
 
 ### Efficiency (anti-patterns that prevent optimal execution)
 
-| Rule | Default Weight | Description |
-|------|---------------|-------------|
-| `select-star` | 5 | `SELECT *` prevents index-only scans |
-| `missing-predicate` | 10 | Multiple tables in FROM without WHERE |
-| `correlated-subquery` | 15 | Subquery that executes per outer row |
-| `non-sargable` | 10 | Function on column in WHERE prevents index usage |
-| `distinct-dedup` | 8 | DISTINCT with JOIN suggests join duplication |
+| Rule | Calibrated Weight | Description |
+|------|------------------|-------------|
+| `select-star` | 1 | `SELECT *` prevents index-only scans |
+| `missing-predicate` | 1 | Multiple tables in FROM without WHERE |
+| `correlated-subquery` | 25 | Subquery that executes per outer row |
+| `non-sargable` | 12 | Function on column in WHERE prevents index usage |
+| `distinct-dedup` | 25 | DISTINCT with JOIN suggests join duplication |
 
 ### Memory/Compute (operations requiring materialization)
 
-| Rule | Default Weight | Description |
-|------|---------------|-------------|
-| `unbounded-sort` | 8 | ORDER BY without LIMIT |
-| `group-by-fanout` | 5 | GROUP BY with aggregation |
-| `window-function` | 6 | Window function (+4 without PARTITION BY) |
-| `cartesian-product` | 15 | CROSS JOIN or implicit cross join |
+| Rule | Calibrated Weight | Description |
+|------|------------------|-------------|
+| `unbounded-sort` | 13 | ORDER BY without LIMIT |
+| `group-by-fanout` | 25 | GROUP BY with aggregation |
+| `window-function` | 1 | Window function (+1 without PARTITION BY) |
+| `cartesian-product` | 1 | CROSS JOIN or implicit cross join |
 
 ### Cognitive Complexity (readability and reasoning cost)
 
-| Rule | Default Weight | Description |
-|------|---------------|-------------|
-| `subquery-nesting` | 3 × depth | Each nesting level multiplies penalty |
-| `join` | 2 | Per join in the query |
-| `boolean-nesting` | 2 × depth | Nested AND/OR expressions |
-| `cte` | 2 | Per Common Table Expression |
-| `case-expression` | 2 | Per CASE expression |
-| `set-operation` | 3 | UNION/INTERSECT/EXCEPT |
+| Rule | Calibrated Weight | Description |
+|------|------------------|-------------|
+| `subquery-nesting` | 1 × depth | Each nesting level multiplies penalty |
+| `join` | 1 | Per join in the query |
+| `boolean-nesting` | 8 × depth | Nested AND/OR expressions |
+| `cte` | 1 | Per Common Table Expression |
+| `case-expression` | 25 | Per CASE expression |
+| `set-operation` | 25 | UNION/INTERSECT/EXCEPT |
 
 ### Grades
 
@@ -207,27 +207,27 @@ make build
 ```json
 {
   "version": 1,
-  "description": "Calibrated weights from 1847293 samples (R²=0.7341)",
-  "r_squared": 0.7341,
-  "sample_size": 1847293,
-  "generated_at": "2026-05-01T15:30:00Z",
+  "description": "Calibrated weights from 13999 samples (R²=1.3692)",
+  "r_squared": 1.3692,
+  "sample_size": 13999,
+  "generated_at": "2026-05-02T06:30:52Z",
   "weights": {
-    "select-star": 5,
-    "missing-predicate": 12,
-    "correlated-subquery": 18,
-    "non-sargable": 11,
-    "distinct-dedup": 7,
-    "unbounded-sort": 9,
-    "group-by-fanout": 4,
-    "window-function": 6,
-    "window-no-partition-extra": 5,
-    "cartesian-product": 19,
-    "subquery-nesting": 3,
-    "join": 2,
-    "boolean-nesting": 2,
+    "select-star": 1,
+    "missing-predicate": 1,
+    "correlated-subquery": 25,
+    "non-sargable": 12,
+    "distinct-dedup": 25,
+    "unbounded-sort": 13,
+    "group-by-fanout": 25,
+    "window-function": 1,
+    "window-no-partition-extra": 1,
+    "cartesian-product": 1,
+    "subquery-nesting": 1,
+    "join": 1,
+    "boolean-nesting": 8,
     "cte": 1,
-    "case-expression": 1,
-    "set-operation": 3
+    "case-expression": 25,
+    "set-operation": 25
   }
 }
 ```
@@ -240,7 +240,8 @@ make build
 |--------|-------------|
 | `make clean` | Remove and recreate `bin/` |
 | `make lint` | Run `go vet -v ./...` and `govulncheck` |
-| `make build` | Build binaries to `bin/` with version/commit embedded via ldflags |
+| `make build` | Build binaries using existing `scorer/weights.json` |
+| `make build/full` | Run calibration to generate fresh weights, then build sqlscore |
 | `make install` | Copy binaries from `bin/` to `~/.bin/` |
 | `make test` | Run unit tests → integration tests → e2e tests (in order) |
 | `make release` | Bump patch version (alias for `make release/patch`) |
