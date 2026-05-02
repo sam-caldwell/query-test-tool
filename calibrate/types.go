@@ -135,6 +135,7 @@ type PipelineConfig struct {
 	Workers        int // concurrency for EXPLAIN execution
 	StatementTimeout int // per-query timeout in ms
 	DatabaseName   string // database to use
+	SchemaFile     string // optional .SQL file for custom schema import
 }
 
 // DefaultConfig returns a PipelineConfig with sensible defaults.

@@ -23,6 +23,7 @@ func main() {
 		workers      int
 		timeout      int
 		outputFile   string
+		schemaFile   string
 	)
 
 	flag.StringVar(&dsn, "dsn", "", "PostgreSQL connection string (default: postgres://localhost:5432/sqlscore_calibrate?sslmode=disable)")
@@ -33,6 +34,7 @@ func main() {
 	flag.IntVar(&workers, "workers", 8, "Concurrent EXPLAIN workers")
 	flag.IntVar(&timeout, "timeout", 5000, "Per-query statement timeout (ms)")
 	flag.StringVar(&outputFile, "output", "scorer/weights.json", "Output file for calculated weights (embedded by cmd/sqlscore at build time)")
+	flag.StringVar(&schemaFile, "schema-file", "", "Path to a .SQL DDL file to import as an additional calibration domain")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, `sqlscore calibrate — Weight calibration via EXPLAIN ANALYZE
@@ -77,6 +79,7 @@ Examples:
 	cfg.RowsPerTable = rows
 	cfg.Workers = workers
 	cfg.StatementTimeout = timeout
+	cfg.SchemaFile = schemaFile
 
 	// Setup context with signal handling
 	ctx, cancel := context.WithCancel(context.Background())

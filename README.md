@@ -179,6 +179,9 @@ createdb sqlscore_calibrate
 # Full pipeline (generates schemas, queries, runs EXPLAIN, computes weights)
 ./bin/calibrate -dsn "postgres://localhost:5432/sqlscore_calibrate?sslmode=disable"
 
+# Calibrate with your own business schema included
+./bin/calibrate -schema-file ./my_schema.sql
+
 # Or run phases independently
 ./bin/calibrate -phase init
 ./bin/calibrate -phase generate -schemas 1000 -queries 100000 -rows 500
@@ -200,7 +203,23 @@ make build
   -workers      Concurrent EXPLAIN workers (default: 8)
   -timeout      Per-query timeout in ms (default: 5000)
   -output       Output weights file (default: scorer/weights.json)
+  -schema-file  Path to .SQL DDL file to include as a custom calibration domain
 ```
+
+### Custom Schema Import
+
+You can provide your own business schema DDL to calibrate weights against your actual database structure:
+
+```bash
+./bin/calibrate -schema-file ./my_app_schema.sql
+```
+
+The `.SQL` file should contain standard PostgreSQL DDL (`CREATE TABLE`, `CREATE INDEX`, `ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY`). The tool will:
+1. Parse the DDL and extract tables, columns, indexes, and foreign keys
+2. Create an additional calibration family from your schema
+3. Apply the same mutations (drop indexes, widen tables, textify columns, denormalize)
+4. Generate queries and run EXPLAIN against both your schema and the random schemas
+5. Produce weights that reflect your specific workload alongside generic patterns
 
 ### Calibration Output
 

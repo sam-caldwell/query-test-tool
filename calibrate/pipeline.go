@@ -46,6 +46,56 @@ func (p *Pipeline) Generate(ctx context.Context) error {
 	sg := NewSchemaGenerator(time.Now().UnixNano())
 	familyPlans := sg.GenerateAll(p.cfg.SchemaCount)
 
+	// If a custom schema file is provided, import it and add as an additional family
+	if p.cfg.SchemaFile != "" {
+		importedDomain, err := ImportSchemaFile(p.cfg.SchemaFile)
+		if err != nil {
+			return fmt.Errorf("importing schema file %s: %w", p.cfg.SchemaFile, err)
+		}
+		log.Printf("Imported custom schema %q from %s (%d tables, %d indexes, %d foreign keys)",
+			importedDomain.Name, p.cfg.SchemaFile,
+			len(importedDomain.Tables), len(importedDomain.Indexes), len(importedDomain.ForeignKeys))
+
+		// Generate variants for the imported domain using the same mutation pipeline
+		variantsPerFamily := p.cfg.SchemaCount / 5
+		variants := GenerateSchemaVariants(*importedDomain, variantsPerFamily-1, sg.rng)
+
+		plan := SchemaFamilyPlan{
+			Domain:      *importedDomain,
+			FamilyName:  fmt.Sprintf("%s_family", importedDomain.Name),
+			Description: importedDomain.Description,
+		}
+
+		schemaName := fmt.Sprintf("cal_imp_%05d", 0)
+		plan.Optimal = SchemaInstance{
+			SchemaName: schemaName,
+			IsOptimal:  true,
+			DDL:        GenerateDDL(*importedDomain, schemaName),
+		}
+
+		counter := 1
+		for _, mutationSet := range variants {
+			degraded := applyMutations(*importedDomain, mutationSet)
+			sn := fmt.Sprintf("cal_imp_%05d", counter)
+			ddl := GenerateDDL(degraded, sn)
+
+			var mutNames []string
+			for _, m := range mutationSet {
+				mutNames = append(mutNames, m.Name)
+			}
+
+			plan.Variants = append(plan.Variants, SchemaInstance{
+				SchemaName: sn,
+				IsOptimal:  false,
+				Mutations:  mutNames,
+				DDL:        ddl,
+			})
+			counter++
+		}
+
+		familyPlans = append(familyPlans, plan)
+	}
+
 	var totalSchemas int64
 	var familyIDs []int
 

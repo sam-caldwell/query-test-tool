@@ -66,8 +66,35 @@ export function Calibration() {
             'createdb sqlscore_calibrate\n\n' +
             '# Full pipeline\n' +
             './bin/calibrate -dsn "postgres:///sqlscore_calibrate?sslmode=disable"\n\n' +
+            '# Include your own business schema\n' +
+            './bin/calibrate -schema-file ./my_app_schema.sql\n\n' +
             '# Rebuild with new weights\n' +
             'make build\n',
+        ),
+
+        createElement('h2', null, 'Custom Schema Import'),
+        createElement('p', null,
+            'You can provide your own business schema DDL to calibrate weights against your actual database structure. ',
+            'This ensures the weights reflect your specific workload alongside generic patterns.',
+        ),
+        createElement('pre', {style: 'background: #1e1e1e; color: #d4d4d4; padding: 1rem; border-radius: 8px; overflow-x: auto;'},
+            '-- my_app_schema.sql\n' +
+            'CREATE TABLE users (\n' +
+            '  id SERIAL PRIMARY KEY,\n' +
+            '  email VARCHAR(255) NOT NULL,\n' +
+            '  created_at TIMESTAMPTZ DEFAULT now()\n' +
+            ');\n' +
+            'CREATE INDEX idx_users_email ON users(email);\n' +
+            'CREATE TABLE orders (\n' +
+            '  id SERIAL PRIMARY KEY,\n' +
+            '  user_id INT NOT NULL,\n' +
+            '  total NUMERIC(10,2)\n' +
+            ');\n' +
+            'ALTER TABLE orders ADD CONSTRAINT fk_user\n' +
+            '  FOREIGN KEY (user_id) REFERENCES users(id);\n',
+        ),
+        createElement('p', null,
+            'The tool parses the DDL, extracts tables/indexes/FKs, and feeds them through the same mutation and calibration pipeline as the generated schemas.',
         ),
     );
 }
