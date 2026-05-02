@@ -83,7 +83,7 @@ jobs:
           - os: ubuntu-24.04-arm
             goos: linux
             goarch: arm64
-          - os: macos-latest
+          - os: macos-14
             goos: darwin
             goarch: arm64
     steps:
@@ -96,10 +96,8 @@ jobs:
           go-version-file: go.mod
 
       - name: Build
-        env:
-          # pg_query_go's vendored libpg_query redefines strchrnul which conflicts
-          # with Xcode 16.4+ SDK. Renaming via preprocessor avoids the collision.
-          CGO_CFLAGS: ${{ matrix.goos == 'darwin' && '-Dstrchrnul=pg_query_strchrnul' || '' }}
+        # macos-14 uses Xcode 15.x which doesn't have the strchrnul SDK conflict
+        # that breaks pg_query_go v5.1.0 on Xcode 16.4+ (macos-latest/15).
         run: |
           VERSION=$(cat VERSION)
           COMMIT=$(git rev-parse --short HEAD)
