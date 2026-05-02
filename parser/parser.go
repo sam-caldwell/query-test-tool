@@ -4,7 +4,7 @@ package parser
 import (
 	"fmt"
 
-	pg_query "github.com/pganalyze/pg_query_go/v5"
+	pg_query "github.com/pganalyze/pg_query_go/v6"
 )
 
 // Parse parses a SQL string and returns the pg_query ParseResult.

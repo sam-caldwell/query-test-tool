@@ -3,7 +3,7 @@ package parser
 import (
 	"testing"
 
-	pg_query "github.com/pganalyze/pg_query_go/v5"
+	pg_query "github.com/pganalyze/pg_query_go/v6"
 )
 
 func TestParse_ValidSQL(t *testing.T) {
