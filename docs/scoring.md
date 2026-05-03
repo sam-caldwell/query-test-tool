@@ -34,31 +34,31 @@ Subquery nesting and boolean nesting use depth-multiplied penalties: a subquery 
 
 ## Efficiency Rules
 
-### select-star (penalty: 5)
+### select-star (penalty: 1)
 
 `SELECT *` fetches all columns, defeating index-only scans and increasing I/O. The penalty is moderate because it's sometimes intentional (e.g., in ad-hoc queries or when all columns are needed).
 
 **Detection**: `ResTarget.Val` is a `ColumnRef` containing an `A_Star` node.
 
-### missing-predicate (penalty: 10)
+### missing-predicate (penalty: 1)
 
 Multiple tables in FROM without a WHERE clause strongly suggests a missing join predicate, producing an unintentional Cartesian product.
 
 **Detection**: Count `RangeVar` nodes in `FromClause` ≥ 2 with nil `WhereClause`.
 
-### correlated-subquery (penalty: 15)
+### correlated-subquery (penalty: 25)
 
 Correlated subqueries execute once per outer row in the worst case, turning an O(n) scan into O(n²). The high penalty reflects this multiplicative cost.
 
 **Detection**: `SubLink` nodes with type `EXISTS`, or `ANY/ALL/EXPR` with a non-nil `Testexpr`.
 
-### non-sargable (penalty: 10)
+### non-sargable (penalty: 12)
 
 Applying a function to a column in a WHERE predicate (e.g., `WHERE LOWER(email) = 'test'`) prevents the optimizer from using an index on that column. The query must scan every row and apply the function.
 
 **Detection**: `FuncCall` wrapping a `ColumnRef` inside `AExpr` nodes within the `WhereClause`. Handles PostgreSQL's schema-qualified function names (e.g., `pg_catalog.btrim` for `TRIM()`).
 
-### distinct-dedup (penalty: 8)
+### distinct-dedup (penalty: 25)
 
 `DISTINCT` combined with `JOIN` often indicates the join is producing duplicate rows that should be eliminated by fixing the join condition, not by adding DISTINCT as a band-aid.
 
@@ -66,25 +66,25 @@ Applying a function to a column in a WHERE predicate (e.g., `WHERE LOWER(email) 
 
 ## Memory/Compute Rules
 
-### unbounded-sort (penalty: 8)
+### unbounded-sort (penalty: 13)
 
 `ORDER BY` without `LIMIT` requires materializing and sorting the entire result set in memory. For large tables, this can consume significant memory and time.
 
 **Detection**: Non-empty `SortClause` with nil `LimitCount` and nil `LimitOffset`.
 
-### group-by-fanout (penalty: 5)
+### group-by-fanout (penalty: 25)
 
 `GROUP BY` with aggregation requires the database to build hash tables or sort the data by grouping keys. The penalty is moderate because GROUP BY is often necessary and well-optimized.
 
 **Detection**: Non-empty `GroupClause` with aggregate function calls (`COUNT`, `SUM`, `AVG`, `MIN`, `MAX`, etc.) in the target list.
 
-### window-function (penalty: 6 or 10)
+### window-function (penalty: 1 or 2)
 
-Window functions maintain state across the partition. Without `PARTITION BY`, the window operates over the entire result set (penalty: 10). With `PARTITION BY`, the scope is bounded (penalty: 6).
+Window functions maintain state across the partition. Without `PARTITION BY`, the window operates over the entire result set (penalty: 2). With `PARTITION BY`, the scope is bounded (penalty: 1).
 
 **Detection**: `FuncCall` with non-nil `Over`. Extra penalty when `Over.PartitionClause` is empty.
 
-### cartesian-product (penalty: 15)
+### cartesian-product (penalty: 1)
 
 Cartesian products produce O(n × m) rows. This is the highest memory/compute penalty because the cost is multiplicative.
 
@@ -92,37 +92,37 @@ Cartesian products produce O(n × m) rows. This is the highest memory/compute pe
 
 ## Cognitive Complexity Rules
 
-### subquery-nesting (penalty: 3 × depth)
+### subquery-nesting (penalty: 1 × depth)
 
 Each level of subquery nesting adds a scope that the reader must hold in working memory. The depth multiplier reflects compounding difficulty.
 
 **Detection**: `SubLink` and `RangeSubselect` nodes. The scorer tracks nesting depth and multiplies the base penalty.
 
-### join (penalty: 2)
+### join (penalty: 1)
 
 Each JOIN adds a table relationship to reason about. The penalty is flat because JOINs don't compound — they're additive relationships.
 
 **Detection**: `JoinExpr` nodes in the FROM clause, counted recursively for nested joins.
 
-### boolean-nesting (penalty: 2 × depth)
+### boolean-nesting (penalty: 8 × depth)
 
 Nested boolean expressions (e.g., `(a AND b) OR (c AND d)`) require the reader to track operator precedence and grouping. Only nesting beyond depth 0 is penalized — flat `AND`/`OR` is readable.
 
 **Detection**: `BoolExpr` nodes within `WhereClause` and `HavingClause`, with depth tracking.
 
-### cte (penalty: 2)
+### cte (penalty: 1)
 
 Each CTE adds a named scope. While CTEs improve readability by decomposing queries, each one is an additional "definition" the reader must understand.
 
 **Detection**: `CommonTableExpr` nodes in `WithClause`.
 
-### case-expression (penalty: 2)
+### case-expression (penalty: 25)
 
 CASE adds conditional branching logic to the result set.
 
 **Detection**: `CaseExpr` nodes in the target list.
 
-### set-operation (penalty: 3)
+### set-operation (penalty: 25)
 
 UNION, INTERSECT, and EXCEPT combine result sets from multiple queries, adding structural complexity.
 

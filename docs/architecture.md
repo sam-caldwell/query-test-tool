@@ -82,8 +82,14 @@ The CLI handles three input modes (flag, file, stdin), two output formats (text,
 
 ## Design Decisions
 
+**Embedded weights**: Weights are compiled into the binary via `//go:embed`. No config files at runtime. Run `make build/full` to regenerate weights from PostgreSQL, or `make build` to use existing weights.
+
 **Independent scorers**: Each dimension walks the AST independently. This is slightly less efficient than a single-pass walk but makes each scorer testable in isolation and trivial to add or remove.
 
-**Conservative weights**: Penalty values are starting points. The intended calibration path is to run against a corpus of queries with known `EXPLAIN ANALYZE` output and adjust weights to correlate with actual performance impact.
+**Empirically calibrated weights**: All weights are derived from paired EXPLAIN ANALYZE comparisons (antipattern query vs control query). The calibration tool supports both random schema generation and custom schema import (`-schema-file`) so weights reflect your actual workload.
+
+**Paired comparison over regression**: Instead of OLS regression on absolute costs, weights are derived by directly comparing antipattern queries against control queries on the same schema. This isolates the cost impact of each antipattern from confounding factors.
+
+**Custom schema import**: The `-schema-file` flag allows importing business-specific DDL into the calibration pipeline. The imported schema goes through the same mutation and query generation as random schemas, ensuring weights are tuned to real-world structures.
 
 **PostgreSQL-only**: We chose depth over breadth. pg_query_go gives us complete PostgreSQL grammar support. MySQL support via vitess/sqlparser is achievable with a dialect abstraction layer but was deferred to avoid premature generalization.

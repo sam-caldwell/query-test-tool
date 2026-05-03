@@ -12,12 +12,13 @@ The core insight: if we know which antipatterns are present in a query (via sqls
 ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
 │  Schema Gen │ →  │  Data Gen   │ →  │ Query Gen   │ →  │  EXPLAIN    │
 │  10K schemas│    │  1K rows/tbl│    │  1M queries  │    │  Runner     │
+│ + custom .SQL│    │  NULLs/skew │    │  18 templates│    │  (parallel) │
 └─────────────┘    └─────────────┘    └─────────────┘    └──────┬──────┘
                                                                  │
                                                                  ▼
                                                          ┌─────────────┐
-                                                         │  OLS Ridge  │
-                                                         │  Regression │
+                                                         │   Paired    │
+                                                         │ Comparison  │
                                                          └─────────────┘
                                                                  │
                                                                  ▼
@@ -170,11 +171,34 @@ This enables:
 - **Fewer queries**: Use `-queries 100000` for faster iteration
 - **More data**: Use `-rows 10000` for more realistic cost differentiation (slower)
 - **More workers**: Use `-workers 16` on machines with many cores and fast disk
+- **Custom schema**: Use `-schema-file ./my_schema.sql` to include your business schema
+
+## Custom Schema Import
+
+You can provide your own business schema DDL to calibrate weights against your actual database:
+
+```bash
+./bin/calibrate -schema-file ./my_app_schema.sql
+```
+
+The `.SQL` file should contain standard PostgreSQL DDL:
+- `CREATE TABLE` statements with column types and constraints
+- `CREATE INDEX` / `CREATE UNIQUE INDEX` statements
+- `ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY` statements
+
+The tool parses the DDL using pg_query_go, builds a `Domain` struct, and feeds it through the same mutation pipeline as generated schemas. This produces an additional calibration family that represents your real workload, ensuring weights are tuned to both generic patterns and your specific schema characteristics.
+
+## Build Targets
+
+| Target | Description |
+|--------|-------------|
+| `make build` | Build using existing `scorer/weights.json` (fast) |
+| `make build/full` | Run calibration to generate fresh weights, then build |
 
 ## Interpreting Results
 
 A well-calibrated result should show:
-- **R² > 0.5**: The model explains at least half the cost variance
 - **Positive weights**: All rules have non-negative penalties
-- **Relative ordering**: cartesian-product > correlated-subquery > non-sargable > select-star (expected from theory)
-- **Zero weights**: Some cognitive rules (cte, case-expression) may be near-zero since they don't affect EXPLAIN cost — this is correct for the efficiency dimension but should be supplemented with human readability assessments for cognitive weights
+- **Relative ordering**: correlated-subquery, group-by-fanout > unbounded-sort, non-sargable > select-star, join (expected from empirical measurement)
+- **High-cost rules**: Rules with weight 25 (correlated-subquery, group-by-fanout, distinct-dedup, set-operation, case-expression) have the highest measured cost impact
+- **Low-cost rules**: Rules with weight 1 (select-star, join, cte) have minimal measurable cost impact at small table sizes — these may increase with larger datasets
