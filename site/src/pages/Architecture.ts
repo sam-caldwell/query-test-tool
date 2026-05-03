@@ -6,12 +6,12 @@ export function Architecture() {
         createElement('h1', null, 'Architecture'),
 
         createElement('h2', null, 'Pipeline'),
-        createElement('pre', {style: 'background: #f5f5f5; padding: 1rem; border-radius: 8px; font-size: 0.85rem;'},
+        createElement('pre', {},
             'SQL string → Parser → AST → Scorers → Report\n',
         ),
 
         createElement('h2', null, 'Package Layout'),
-        createElement('pre', {style: 'background: #f5f5f5; padding: 1rem; border-radius: 8px; font-size: 0.85rem;'},
+        createElement('pre', {},
             'query-test-tool/\n' +
             '├── scorer/           # Scoring engine\n' +
             '│   ├── weights.json  # Embedded calibrated weights\n' +

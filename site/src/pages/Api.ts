@@ -7,7 +7,7 @@ export function Api() {
         createElement('p', null, 'sqlscore can be used as a Go library for programmatic SQL analysis.'),
 
         createElement('h2', null, 'ScoreQuery'),
-        createElement('pre', {style: 'background: #1e1e1e; color: #d4d4d4; padding: 1rem; border-radius: 8px;'},
+        createElement('pre', {},
             'import "github.com/sqlscore/scorer"\n\n' +
             'report, err := scorer.ScoreQuery("SELECT * FROM users ORDER BY name")\n' +
             'if err != nil {\n' +
@@ -20,7 +20,7 @@ export function Api() {
         ),
 
         createElement('h2', null, 'Report Structure'),
-        createElement('pre', {style: 'background: #f5f5f5; padding: 1rem; border-radius: 8px; font-size: 0.85rem;'},
+        createElement('pre', {},
             'type Report struct {\n' +
             '    SQL              string         `json:"sql"`\n' +
             '    TotalScore       int            `json:"total_score"`\n' +
@@ -42,7 +42,7 @@ export function Api() {
         ),
 
         createElement('h2', null, 'Accessing Weights'),
-        createElement('pre', {style: 'background: #1e1e1e; color: #d4d4d4; padding: 1rem; border-radius: 8px;'},
+        createElement('pre', {},
             'import "github.com/sqlscore/scorer"\n\n' +
             '// Get all loaded weights\n' +
             'w := scorer.Weights()\n' +
@@ -53,7 +53,7 @@ export function Api() {
         ),
 
         createElement('h2', null, 'Parser Package'),
-        createElement('pre', {style: 'background: #1e1e1e; color: #d4d4d4; padding: 1rem; border-radius: 8px;'},
+        createElement('pre', {},
             'import "github.com/sqlscore/parser"\n\n' +
             '// Parse SQL into PostgreSQL AST\n' +
             'tree, err := parser.Parse("SELECT id FROM users WHERE id = 1")\n\n' +

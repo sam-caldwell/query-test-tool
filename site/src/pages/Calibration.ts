@@ -10,7 +10,7 @@ export function Calibration() {
         ),
 
         createElement('h2', null, 'Pipeline'),
-        createElement('pre', {style: 'background: #f5f5f5; padding: 1rem; border-radius: 8px; font-size: 0.85rem;'},
+        createElement('pre', {},
             '┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐\n' +
             '│  Schema Gen │ →  │  Data Gen   │ →  │ Query Gen   │ →  │  EXPLAIN    │\n' +
             '│  10K schemas│    │  1K rows/tbl│    │  1M queries  │    │  Runner     │\n' +
@@ -61,7 +61,7 @@ export function Calibration() {
         ),
 
         createElement('h2', null, 'Running Calibration'),
-        createElement('pre', {style: 'background: #1e1e1e; color: #d4d4d4; padding: 1rem; border-radius: 8px; overflow-x: auto;'},
+        createElement('pre', {},
             '# Prerequisites\n' +
             'createdb sqlscore_calibrate\n\n' +
             '# Full pipeline\n' +
@@ -77,7 +77,7 @@ export function Calibration() {
             'You can provide your own business schema DDL to calibrate weights against your actual database structure. ',
             'This ensures the weights reflect your specific workload alongside generic patterns.',
         ),
-        createElement('pre', {style: 'background: #1e1e1e; color: #d4d4d4; padding: 1rem; border-radius: 8px; overflow-x: auto;'},
+        createElement('pre', {},
             '-- my_app_schema.sql\n' +
             'CREATE TABLE users (\n' +
             '  id SERIAL PRIMARY KEY,\n' +

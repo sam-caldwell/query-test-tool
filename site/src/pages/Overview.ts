@@ -4,7 +4,7 @@ export function Overview() {
 
     return createElement('div', null,
         createElement('h1', null, 'sqlscore'),
-        createElement('p', {style: 'font-size: 1.2rem; color: #555;'},
+        createElement('p', {className: 'lead'},
             'Static analysis tool that scores SQL queries across three dimensions: ',
             createElement('strong', null, 'efficiency'), ', ',
             createElement('strong', null, 'memory/compute cost'), ', and ',
@@ -17,10 +17,10 @@ export function Overview() {
             createElement('li', null, 'Report findings with empirically calibrated penalty weights'),
         ),
         createElement('h2', null, 'Scoring Dimensions'),
-        createElement('div', {style: 'display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; margin-top: 1rem;'},
-            dimensionCard('Efficiency', 'Detects anti-patterns that prevent index usage or cause full scans: SELECT *, non-sargable predicates, correlated subqueries, missing join predicates.', '#e74c3c'),
-            dimensionCard('Memory/Compute', 'Flags operations requiring intermediate materialization: unbounded sorts, GROUP BY fan-out, window functions, Cartesian products.', '#f39c12'),
-            dimensionCard('Cognitive Complexity', 'Measures readability cost: subquery nesting depth, join count, boolean nesting, CTEs, CASE expressions, set operations.', '#3498db'),
+        createElement('div', {className: 'card-grid'},
+            dimensionCard('Efficiency', 'Detects anti-patterns that prevent index usage or cause full scans: SELECT *, non-sargable predicates, correlated subqueries, missing join predicates.', 'card-red'),
+            dimensionCard('Memory/Compute', 'Flags operations requiring intermediate materialization: unbounded sorts, GROUP BY fan-out, window functions, Cartesian products.', 'card-amber'),
+            dimensionCard('Cognitive Complexity', 'Measures readability cost: subquery nesting depth, join count, boolean nesting, CTEs, CASE expressions, set operations.', 'card-blue'),
         ),
         createElement('h2', null, 'Calibrated Weights'),
         createElement('p', null,
@@ -28,7 +28,7 @@ export function Overview() {
             'The calibration tool generates thousands of schema variants (with/without indexes, varying normalization) ',
             'and compares the cost of antipattern queries against control queries to measure real performance impact.',
         ),
-        createElement('pre', {style: 'background: #1e1e1e; color: #d4d4d4; padding: 1rem; border-radius: 8px; overflow-x: auto;'},
+        createElement('pre', null,
             '$ sqlscore -q "SELECT * FROM users WHERE LOWER(email) = \'test\' ORDER BY name"\n\n' +
             'Total Score: 26 (poor)\n\n' +
             '  efficiency:             13  (2 finding(s))\n' +
@@ -40,9 +40,9 @@ export function Overview() {
     );
 }
 
-function dimensionCard(title: string, description: string, color: string) {
-    return createElement('div', {style: `border-left: 4px solid ${color}; padding: 1rem; background: #f9f9f9; border-radius: 4px;`},
-        createElement('h3', {style: `color: ${color}; margin-top: 0;`}, title),
-        createElement('p', {style: 'margin-bottom: 0; font-size: 0.9rem;'}, description),
+function dimensionCard(title: string, description: string, className: string) {
+    return createElement('div', {className: 'card ' + className},
+        createElement('h3', null, title),
+        createElement('p', null, description),
     );
 }

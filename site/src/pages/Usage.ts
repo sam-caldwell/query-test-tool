@@ -6,7 +6,7 @@ export function Usage() {
         createElement('h1', null, 'Usage'),
 
         createElement('h2', null, 'Basic Usage'),
-        createElement('pre', {style: 'background: #1e1e1e; color: #d4d4d4; padding: 1rem; border-radius: 8px;'},
+        createElement('pre', {},
             '# Score a query directly\n' +
             'sqlscore -q "SELECT * FROM users ORDER BY name"\n\n' +
             '# From stdin\n' +
@@ -20,7 +20,7 @@ export function Usage() {
         ),
 
         createElement('h2', null, 'Options'),
-        createElement('pre', {style: 'background: #f5f5f5; padding: 1rem; border-radius: 8px; font-size: 0.85rem;'},
+        createElement('pre', {},
             '  -q, -query     SQL query to score\n' +
             '  -f, -file      File containing SQL query\n' +
             '  -format        Output format: text or json (default: text)\n' +
@@ -29,7 +29,7 @@ export function Usage() {
         ),
 
         createElement('h2', null, 'Output Example'),
-        createElement('pre', {style: 'background: #1e1e1e; color: #d4d4d4; padding: 1rem; border-radius: 8px;'},
+        createElement('pre', {},
             'SQL Query Score Report\n' +
             '======================\n\n' +
             'Total Score: 26 (poor)\n\n' +
@@ -42,7 +42,7 @@ export function Usage() {
         ),
 
         createElement('h2', null, 'JSON Output'),
-        createElement('pre', {style: 'background: #1e1e1e; color: #d4d4d4; padding: 1rem; border-radius: 8px;'},
+        createElement('pre', {},
             '{\n' +
             '  "sql": "SELECT * FROM users",\n' +
             '  "total_score": 1,\n' +

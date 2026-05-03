@@ -28,24 +28,23 @@ const navItems = [
 ];
 
 export function App() {
-    // Determine current page from hash
     const hash = window.location.hash.replace('#/', '') || 'overview';
     const PageComponent = pages[hash] || Overview;
 
-    return createElement('div', {style: 'display:flex; min-height:100vh; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;'},
-        createElement('nav', {style: 'width:240px; min-height:100vh; background:#1a1a2e; padding:1rem 0;'},
-            createElement('div', {style: 'padding: 0.75rem 1.5rem; margin-bottom: 1rem;'},
-                createElement('h2', {style: 'color:#fff; font-size:1.1rem; margin:0;'}, 'sqlscore'),
-                createElement('p', {style: 'color:#888; font-size:0.75rem; margin:0.25rem 0 0;'}, 'Query Scoring Tool'),
+    return createElement('div', {className: 'app-layout'},
+        createElement('nav', {className: 'sidebar'},
+            createElement('div', {className: 'sidebar-header'},
+                createElement('h2', {className: 'sidebar-title'}, 'sqlscore'),
+                createElement('p', {className: 'sidebar-subtitle'}, 'Query Scoring Tool'),
             ),
             ...navItems.map(item =>
                 createElement('a', {
                     href: '#/' + item.id,
-                    style: `display:block; padding:0.6rem 1.5rem; color:${hash === item.id ? '#fff' : '#aaa'}; text-decoration:none; background:${hash === item.id ? '#16213e' : 'transparent'}; border-left:3px solid ${hash === item.id ? '#4fc3f7' : 'transparent'}; font-size:0.9rem;`,
+                    className: 'nav-link' + (hash === item.id ? ' nav-link-active' : ''),
                 }, item.label),
             ),
         ),
-        createElement('main', {style: 'flex:1; overflow-y:auto; padding: 2rem 3rem; max-width: 900px;'},
+        createElement('main', {className: 'content'},
             createElement(PageComponent, null),
         ),
     );

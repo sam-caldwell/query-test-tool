@@ -6,7 +6,7 @@ export function Installation() {
         createElement('h1', null, 'Installation'),
 
         createElement('h2', null, 'From Source'),
-        createElement('pre', {style: 'background: #1e1e1e; color: #d4d4d4; padding: 1rem; border-radius: 8px;'},
+        createElement('pre', {},
             'git clone https://github.com/sam-caldwell/query-test-tool.git\n' +
             'cd query-test-tool\n' +
             'make build      # builds to bin/\n' +
@@ -14,7 +14,7 @@ export function Installation() {
         ),
 
         createElement('h2', null, 'Go Install'),
-        createElement('pre', {style: 'background: #1e1e1e; color: #d4d4d4; padding: 1rem; border-radius: 8px;'},
+        createElement('pre', {},
             'go install github.com/sqlscore/cmd/sqlscore@latest\n' +
             'go install github.com/sqlscore/cmd/calibrate@latest\n',
         ),
@@ -28,7 +28,7 @@ export function Installation() {
 
         createElement('h2', null, 'Build Targets'),
         createElement('p', null, 'The Makefile supports:'),
-        createElement('pre', {style: 'background: #1e1e1e; color: #d4d4d4; padding: 1rem; border-radius: 8px;'},
+        createElement('pre', {},
             'make clean      # Remove and recreate bin/\n' +
             'make lint       # go vet + govulncheck\n' +
             'make build      # Build using existing weights\n' +
