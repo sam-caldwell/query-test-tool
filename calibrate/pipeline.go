@@ -42,7 +42,7 @@ func (p *Pipeline) Generate(ctx context.Context) error {
 	start := time.Now()
 
 	// Phase 1: Generate schemas (parallelized)
-	log.Printf("Generating %d schema variants across 5 domains (%d workers)...", p.cfg.SchemaCount, p.cfg.Workers)
+	log.Printf("Generating %d schema variants across %d domains (%d workers)...", p.cfg.SchemaCount, len(Archetypes()), p.cfg.Workers)
 	sg := NewSchemaGenerator(time.Now().UnixNano())
 	familyPlans := sg.GenerateAll(p.cfg.SchemaCount)
 
@@ -57,7 +57,7 @@ func (p *Pipeline) Generate(ctx context.Context) error {
 			len(importedDomain.Tables), len(importedDomain.Indexes), len(importedDomain.ForeignKeys))
 
 		// Generate variants for the imported domain using the same mutation pipeline
-		variantsPerFamily := p.cfg.SchemaCount / 5
+		variantsPerFamily := p.cfg.SchemaCount / len(Archetypes())
 		variants := GenerateSchemaVariants(*importedDomain, variantsPerFamily-1, sg.rng)
 
 		plan := SchemaFamilyPlan{

@@ -169,6 +169,51 @@ func textExpression(colName string, totalRows int) string {
 	switch {
 	case strings.Contains(colName, "email"):
 		return "'user_' || i || '@example.com'"
+
+	// Accounting-specific patterns (before generic matches)
+	case strings.Contains(colName, "ein"):
+		return "'0' || lpad(((i * 7 + 13) % 90 + 10)::text, 2, '0') || '-' || lpad(((i * 31 + 7) % 9000000 + 1000000)::text, 7, '0')"
+	case strings.Contains(colName, "tax_id"):
+		return "'TID-' || lpad(i::text, 9, '0')"
+	case strings.Contains(colName, "account_code"):
+		// Realistic COA numbering: 1xxx assets, 2xxx liabilities, 3xxx equity, 4xxx revenue, 5xxx expense
+		return "lpad(((i % 5 + 1) * 1000 + (i % 200))::text, 4, '0')"
+	case strings.Contains(colName, "account_name"):
+		return "(ARRAY['Cash','Accounts Receivable','Inventory','Equipment','Accounts Payable','Revenue','Cost of Goods Sold','Rent Expense','Payroll Expense','Depreciation'])[1 + (i % 10)]"
+	case strings.Contains(colName, "account_type"):
+		return "(ARRAY['asset','liability','equity','revenue','expense'])[1 + (i % 5)]"
+	case strings.Contains(colName, "normal_balance"):
+		return "CASE WHEN i % 5 < 3 THEN 'debit' ELSE 'credit' END"
+	case strings.Contains(colName, "entity_type"):
+		return "(ARRAY['sole_prop','llc','s_corp','c_corp','partnership'])[1 + (random() * 4)::int]"
+	case strings.Contains(colName, "invoice_number"):
+		return "'INV-' || lpad(i::text, 8, '0')"
+	case strings.Contains(colName, "bill_number"):
+		return "'BILL-' || lpad(i::text, 8, '0')"
+	case strings.Contains(colName, "check_number"):
+		return "'CHK-' || lpad((10000 + i)::text, 8, '0')"
+	case strings.Contains(colName, "reference_number"):
+		return "'REF-' || lpad(i::text, 8, '0')"
+	case strings.Contains(colName, "routing_number"):
+		return "lpad(((i * 37 + 11) % 900000000 + 100000000)::text, 9, '0')"
+	case strings.Contains(colName, "account_number"):
+		return "lpad(((i * 73 + 29) % 90000000 + 10000000)::text, 10, '0')"
+	case strings.Contains(colName, "payment_terms"):
+		return "(ARRAY['net_15','net_30','net_45','net_60','due_on_receipt'])[1 + (random() * 4)::int]"
+	case strings.Contains(colName, "institution"):
+		return "(ARRAY['Chase','Bank of America','Wells Fargo','Citibank','US Bank','PNC','Capital One','TD Bank'])[1 + (random() * 7)::int]"
+	case strings.Contains(colName, "vendor_type"):
+		return "(ARRAY['supplier','contractor','consultant','utility','insurance','landlord'])[1 + (random() * 5)::int]"
+	case strings.Contains(colName, "entry_type"):
+		return "(ARRAY['standard','adjusting','closing','reversing'])[1 + (random() * 3)::int]"
+	case strings.Contains(colName, "industry"):
+		return "(ARRAY['construction','healthcare','retail','manufacturing','technology','professional_services','restaurant','real_estate','transportation','agriculture'])[1 + (random() * 9)::int]"
+	case strings.Contains(colName, "phone"):
+		return "'(' || lpad(((i * 7 + 200) % 800 + 200)::text, 3, '0') || ') ' || lpad(((i * 13 + 100) % 900 + 100)::text, 3, '0') || '-' || lpad((i % 10000)::text, 4, '0')"
+	case strings.Contains(colName, "address"):
+		return "(ARRAY['100 Main St','200 Oak Ave','300 Elm Blvd','400 Pine Dr','500 Maple Ln'])[1 + (random() * 4)::int] || ', ' || (ARRAY['New York, NY','Chicago, IL','Houston, TX','Phoenix, AZ','Dallas, TX'])[1 + (random() * 4)::int]"
+	case strings.Contains(colName, "memo") || strings.Contains(colName, "description"):
+		return "'Transaction memo for record ' || i"
 	case strings.Contains(colName, "name") || strings.Contains(colName, "title"):
 		// High cardinality: unique-ish values with some repeats for realistic join behavior
 		return fmt.Sprintf("'name_' || (power(random(), 0.5) * %d)::int", totalRows)

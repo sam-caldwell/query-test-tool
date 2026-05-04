@@ -8,8 +8,8 @@ import (
 
 func TestArchetypes(t *testing.T) {
 	domains := Archetypes()
-	if len(domains) != 5 {
-		t.Fatalf("expected 5 domains, got %d", len(domains))
+	if len(domains) != 7 {
+		t.Fatalf("expected 7 domains, got %d", len(domains))
 	}
 
 	for _, d := range domains {
@@ -256,8 +256,8 @@ func TestSchemaGenerator_GenerateAll(t *testing.T) {
 	sg := NewSchemaGenerator(42)
 	plans := sg.GenerateAll(100) // small count for testing
 
-	if len(plans) != 5 {
-		t.Errorf("expected 5 family plans, got %d", len(plans))
+	if len(plans) != 7 {
+		t.Errorf("expected 7 family plans, got %d", len(plans))
 	}
 
 	totalSchemas := 0
