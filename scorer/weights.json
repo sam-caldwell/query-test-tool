@@ -13,6 +13,7 @@
     "distinct-dedup": 25,
     "group-by-fanout": 25,
     "join": 1,
+    "outer-join": 3,
     "missing-predicate": 1,
     "non-sargable": 12,
     "select-star": 1,
@@ -20,6 +21,11 @@
     "subquery-nesting": 1,
     "unbounded-sort": 13,
     "window-function": 1,
-    "window-no-partition-extra": 1
+    "window-no-partition-extra": 1,
+    "join-count-squared": 1,
+    "null-coalesce-in-predicate": 2,
+    "null-check-chain": 2,
+    "expensive-function": 2,
+    "volatile-function": 3
   }
 }

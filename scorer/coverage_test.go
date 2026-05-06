@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	pg_query "github.com/pganalyze/pg_query_go/v6"
-	"github.com/sqlscore/parser"
+	"github.com/sam-caldwell/query-test-tool/parser"
 )
 
 // Additional tests targeting uncovered branches for 98%+ coverage.

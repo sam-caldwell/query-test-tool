@@ -30,6 +30,40 @@ func TestCognitive_Joins(t *testing.T) {
 	}
 }
 
+func TestCognitive_OuterJoins(t *testing.T) {
+	tests := []struct {
+		name          string
+		sql           string
+		wantJoins     int
+		wantOuterJoin int
+	}{
+		{"inner join", "SELECT * FROM a JOIN b ON a.id = b.a_id", 1, 0},
+		{"left join", "SELECT * FROM a LEFT JOIN b ON a.id = b.a_id", 1, 1},
+		{"right join", "SELECT * FROM a RIGHT JOIN b ON a.id = b.a_id", 1, 1},
+		{"full join", "SELECT * FROM a FULL JOIN b ON a.id = b.a_id", 1, 1},
+		{"cross join", "SELECT * FROM a CROSS JOIN b", 1, 0},
+		{"left and inner", "SELECT * FROM a LEFT JOIN b ON a.id = b.a_id JOIN c ON b.id = c.b_id", 2, 1},
+		{"two left joins", "SELECT * FROM a LEFT JOIN b ON a.id = b.a_id LEFT JOIN c ON b.id = c.b_id", 2, 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			report, err := ScoreQuery(tt.sql)
+			if err != nil {
+				t.Fatal(err)
+			}
+			joinCount := countRule(report.CognitiveComplex.Findings, "join")
+			if joinCount != tt.wantJoins {
+				t.Errorf("join count: got %d, want %d", joinCount, tt.wantJoins)
+			}
+			outerCount := countRule(report.CognitiveComplex.Findings, "outer-join")
+			if outerCount != tt.wantOuterJoin {
+				t.Errorf("outer-join count: got %d, want %d", outerCount, tt.wantOuterJoin)
+			}
+		})
+	}
+}
+
 func TestCognitive_SubqueryNesting(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -263,8 +297,8 @@ func TestCognitive_ComplexQuery(t *testing.T) {
 		t.Error("complex query should have non-zero cognitive score")
 	}
 
-	// Should have findings for: CTE, joins (2), case, boolean nesting
-	expectedRules := []string{"cte", "join", "case-expression"}
+	// Should have findings for: CTE, joins (2), outer-join (LEFT JOIN), case, boolean nesting
+	expectedRules := []string{"cte", "join", "outer-join", "case-expression"}
 	for _, rule := range expectedRules {
 		if !hasRule(report.CognitiveComplex.Findings, rule) {
 			t.Errorf("expected rule %q in findings", rule)

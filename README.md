@@ -31,8 +31,8 @@ make install    # copies to ~/.bin/
 ### Go Install
 
 ```bash
-go install github.com/sqlscore/cmd/sqlscore@latest
-go install github.com/sqlscore/cmd/calibrate@latest
+go install github.com/sam-caldwell/query-test-tool/cmd/sqlscore@latest
+go install github.com/sam-caldwell/query-test-tool/cmd/calibrate@latest
 ```
 
 ## Quick Start
@@ -126,6 +126,7 @@ Total Score: 25 (fair)
 | `correlated-subquery` | 25 | Subquery that executes per outer row |
 | `non-sargable` | 12 | Function on column in WHERE prevents index usage |
 | `distinct-dedup` | 25 | DISTINCT with JOIN suggests join duplication |
+| `join-count-squared` | 1 | Superlinear join cost — penalty scales quadratically with join count |
 
 ### Memory/Compute (operations requiring materialization)
 
@@ -142,6 +143,7 @@ Total Score: 25 (fair)
 |------|------------------|-------------|
 | `subquery-nesting` | 1 × depth | Each nesting level multiplies penalty |
 | `join` | 1 | Per join in the query |
+| `outer-join` | 3 | LEFT/RIGHT/FULL OUTER JOIN adds NULL-handling complexity |
 | `boolean-nesting` | 8 × depth | Nested AND/OR expressions |
 | `cte` | 1 | Per Common Table Expression |
 | `case-expression` | 25 | Per CASE expression |
@@ -163,7 +165,7 @@ Scoring weights are stored in `scorer/weights.json` and embedded at build time. 
 
 ### How It Works
 
-1. **Generate 10,000 schemas** — 5 domain archetypes × systematically applied mutations (dropped indexes, widened tables, removed FKs, textified columns)
+1. **Generate 10,000 schemas** — 7 domain archetypes × systematically applied mutations (dropped indexes, widened tables, removed FKs, textified columns)
 2. **Populate with data** — bulk `generate_series`-based insertion with realistic patterns
 3. **Generate 1,000,000 queries** — 18 templates per antipattern, parameterized per schema
 4. **Run EXPLAIN ANALYZE** — concurrent execution against optimal and degraded schemas
@@ -243,6 +245,8 @@ The `.SQL` file should contain standard PostgreSQL DDL (`CREATE TABLE`, `CREATE 
     "cartesian-product": 1,
     "subquery-nesting": 1,
     "join": 1,
+    "outer-join": 3,
+    "join-count-squared": 1,
     "boolean-nesting": 8,
     "cte": 1,
     "case-expression": 25,
@@ -313,7 +317,7 @@ query-test-tool/
 │   └── *_test.go             # Unit tests (100% coverage)
 ├── calibrate/
 │   ├── types.go              # Shared types
-│   ├── archetype.go          # 5 domain archetypes
+│   ├── archetype.go          # 7 domain archetypes
 │   ├── mutation.go           # Schema mutation generators
 │   ├── schemagen.go          # Schema family generation
 │   ├── datagen.go            # Data population
@@ -363,14 +367,14 @@ See [docs/architecture.md](docs/architecture.md) for detailed system design.
 
 - **Embedded weights**: Weights are compiled into the binary via `//go:embed`. No config files at runtime.
 - **Independent scorers**: Each dimension walks the AST independently for testability.
-- **Ridge regression**: Handles sparse features (most queries trigger 1-3 rules out of 15).
+- **Ridge regression**: Handles sparse features (most queries trigger 1-3 rules out of 17).
 - **PostgreSQL parser**: Uses libpg_query via cgo for complete grammar support.
 - **Schema families**: Optimal/degraded pairs enable cost ratio comparison for calibration.
 
 ## Library Usage
 
 ```go
-import "github.com/sqlscore/scorer"
+import "github.com/sam-caldwell/query-test-tool/scorer"
 
 report, err := scorer.ScoreQuery("SELECT * FROM users ORDER BY name")
 if err != nil {

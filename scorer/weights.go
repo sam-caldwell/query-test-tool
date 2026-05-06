@@ -60,10 +60,16 @@ func defaultWeights() *WeightsFile {
 			"cartesian-product":         15,
 			"subquery-nesting":          3,
 			"join":                      2,
+			"outer-join":               3,
 			"boolean-nesting":           2,
 			"cte":                       2,
 			"case-expression":           2,
 			"set-operation":             3,
+			"join-count-squared":         1,
+			"null-coalesce-in-predicate": 2,
+			"null-check-chain":           2,
+			"expensive-function":         2,
+			"volatile-function":          3,
 		},
 	}
 }

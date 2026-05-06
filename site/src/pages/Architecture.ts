@@ -23,7 +23,7 @@ export function Architecture() {
             '├── parser/           # pg_query wrapper\n' +
             '│   └── parser.go     # Parse(), Walk(), Children()\n' +
             '├── calibrate/        # Weight calibration system\n' +
-            '│   ├── archetype.go  # 5 domain archetypes\n' +
+            '│   ├── archetype.go  # 7 domain archetypes\n' +
             '│   ├── mutation.go   # Schema degradation generators\n' +
             '│   ├── schemagen.go  # Schema family generation\n' +
             '│   ├── datagen.go    # Data population (NULLs, skew)\n' +

@@ -11,7 +11,7 @@ SQL string → Parser → AST → Scorers → Report
 ### Package Layout
 
 ```
-sqlscore/
+query-test-tool/
 ├── cmd/sqlscore/     # CLI entry point
 │   └── main.go       # Flag parsing, I/O, text/JSON output
 ├── parser/           # SQL parsing and AST traversal

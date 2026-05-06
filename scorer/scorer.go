@@ -7,7 +7,7 @@ import (
 
 	pg_query "github.com/pganalyze/pg_query_go/v6"
 
-	"github.com/sqlscore/parser"
+	"github.com/sam-caldwell/query-test-tool/parser"
 )
 
 // Finding represents a single issue detected in the query.
@@ -50,6 +50,16 @@ func ScoreQuery(sql string) (*Report, error) {
 	mem := (&MemoryComputeScorer{}).Score(tree)
 	cog := (&CognitiveScorer{}).Score(tree)
 
+	// Apply superlinear join cost escalation.
+	// The quadratic portion beyond linear: count² - count.
+	applyJoinEscalation(&cog)
+
+	// NULL awareness: COALESCE in predicates → efficiency, NULL check chains → cognitive.
+	scoreNullPatterns(tree, &eff, &cog)
+
+	// Function cost: expensive and volatile functions → efficiency.
+	scoreFunctionCost(tree, &eff)
+
 	return &Report{
 		SQL:              sql,
 		TotalScore:       eff.Score + mem.Score + cog.Score,
@@ -57,6 +67,33 @@ func ScoreQuery(sql string) (*Report, error) {
 		MemoryCompute:    mem,
 		CognitiveComplex: cog,
 	}, nil
+}
+
+// applyJoinEscalation adds a superlinear (quadratic) penalty when multiple joins
+// are present. The extra penalty captures optimizer complexity and fan-out compounding
+// that makes each additional join more expensive than the last.
+func applyJoinEscalation(ds *DimensionScore) {
+	joinCount := 0
+	for _, f := range ds.Findings {
+		if f.Rule == "join" {
+			joinCount++
+		}
+	}
+	if joinCount <= 1 {
+		return
+	}
+	// Quadratic portion beyond linear: count² - count
+	quadratic := joinCount*joinCount - joinCount
+	penalty := Weight("join-count-squared") * quadratic
+	if penalty > 0 {
+		ds.Findings = append(ds.Findings, Finding{
+			Rule:        "join-escalation",
+			Description: fmt.Sprintf("Superlinear join cost: %d joins compound optimizer complexity", joinCount),
+			Penalty:     penalty,
+			Category:    "cognitive_complexity",
+		})
+		ds.Score += penalty
+	}
 }
 
 // funcName extracts the function name from a FuncCall node.

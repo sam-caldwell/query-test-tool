@@ -14,7 +14,7 @@
   "author": "Sam Caldwell",
   "license": "MIT",
   "dependencies": {
-    "@asymmetric-effort/specifyjs": "^0.2.15",
+    "@asymmetric-effort/specifyjs": "^0.2.27",
     "typescript": "^6.0.3",
     "vite": "^8.0.10"
   },

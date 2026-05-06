@@ -64,6 +64,12 @@ Applying a function to a column in a WHERE predicate (e.g., `WHERE LOWER(email) 
 
 **Detection**: Non-empty `DistinctClause` with `JoinExpr` in `FromClause`.
 
+### join-count-squared (penalty: 1 × join_count²)
+
+As the number of joins increases, the optimizer's search space and potential for suboptimal plans grows superlinearly. This rule applies a quadratic penalty based on the total join count to reflect escalating join costs.
+
+**Detection**: Counts `JoinExpr` nodes in the query; penalty = weight × count².
+
 ## Memory/Compute Rules
 
 ### unbounded-sort (penalty: 13)
@@ -103,6 +109,12 @@ Each level of subquery nesting adds a scope that the reader must hold in working
 Each JOIN adds a table relationship to reason about. The penalty is flat because JOINs don't compound — they're additive relationships.
 
 **Detection**: `JoinExpr` nodes in the FROM clause, counted recursively for nested joins.
+
+### outer-join (penalty: 3)
+
+LEFT, RIGHT, and FULL OUTER JOINs introduce NULL-handling complexity that inner joins do not. The reader must consider which side may produce NULLs and how downstream logic handles them.
+
+**Detection**: `JoinExpr` nodes with `Jointype` of `JOIN_LEFT`, `JOIN_RIGHT`, or `JOIN_FULL`.
 
 ### boolean-nesting (penalty: 8 × depth)
 

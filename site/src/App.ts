@@ -6,6 +6,7 @@ import {Installation} from './pages/Installation';
 import {Usage} from './pages/Usage';
 import {Architecture} from './pages/Architecture';
 import {Api} from './pages/Api';
+import {NotFound} from './pages/NotFound';
 
 const pages: Record<string, () => ReturnType<typeof createElement>> = {
     overview: Overview,
@@ -29,7 +30,7 @@ const navItems = [
 
 export function App() {
     const hash = window.location.hash.replace('#/', '') || 'overview';
-    const PageComponent = pages[hash] || Overview;
+    const PageComponent = pages[hash] || NotFound;
 
     return createElement('div', {className: 'app-layout'},
         createElement('nav', {className: 'sidebar'},

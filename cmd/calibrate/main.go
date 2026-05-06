@@ -10,7 +10,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/sqlscore/calibrate"
+	"github.com/sam-caldwell/query-test-tool/calibrate"
 )
 
 func main() {

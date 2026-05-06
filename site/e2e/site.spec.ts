@@ -112,6 +112,39 @@ test.describe('SEO', () => {
     });
 });
 
+test.describe('404 error handling', () => {
+    test('unknown hash route shows 404 page', async ({page}) => {
+        const errors: string[] = [];
+        page.on('pageerror', err => errors.push(err.message));
+
+        await page.goto('/#/mybadUrlexpects404');
+        await page.waitForLoadState('networkidle');
+
+        await expect(page.locator('h1')).toContainText('404');
+        await expect(page.locator('.not-found')).toBeVisible();
+        await expect(page.locator('text=does not exist')).toBeVisible();
+        expect(errors).toEqual([]);
+    });
+
+    test('404 page has link back to overview', async ({page}) => {
+        await page.goto('/#/nonexistent-page');
+        await page.waitForLoadState('networkidle');
+
+        await expect(page.locator('h1')).toContainText('404');
+        const link = page.locator('a:has-text("Return to Overview")');
+        await expect(link).toBeVisible();
+        await expect(link).toHaveAttribute('href', '#/overview');
+    });
+
+    test('404 does not appear for valid routes', async ({page}) => {
+        await page.goto('/#/scoring');
+        await page.waitForLoadState('networkidle');
+
+        await expect(page.locator('h1')).not.toContainText('404');
+        await expect(page.locator('main h1')).toContainText('Scoring Rules');
+    });
+});
+
 test.describe('No runtime errors on any page', () => {
     const routes = ['/', '#/overview', '#/scoring', '#/calibration', '#/installation', '#/usage', '#/architecture', '#/api'];
 

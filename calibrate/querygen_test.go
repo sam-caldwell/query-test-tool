@@ -56,6 +56,7 @@ func TestQueryGenerator_QueryTypes(t *testing.T) {
 		"unbounded_sort", "bounded_sort", "group_by",
 		"window_no_partition", "exists_subquery", "proper_join",
 		"distinct_join", "cte", "cartesian",
+		"left_join", "right_join", "full_join",
 	}
 
 	queryTypes := make(map[string]bool)
@@ -89,6 +90,7 @@ func TestQueryGenerator_RuleCoverage(t *testing.T) {
 		"group-by-fanout", "window-function", "correlated-subquery",
 		"distinct-dedup", "cartesian-product", "missing-predicate",
 		"set-operation", "cte", "boolean-nesting", "case-expression",
+		"outer-join",
 	}
 
 	for _, rule := range expectedRules {

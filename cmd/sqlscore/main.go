@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/sqlscore/scorer"
+	"github.com/sam-caldwell/query-test-tool/scorer"
 )
 
 // Set via -ldflags at build time.

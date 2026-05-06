@@ -25,6 +25,7 @@ export function Scoring() {
             ['correlated-subquery', '25', 'Subquery that may execute once per outer row (EXISTS, IN, ANY)'],
             ['non-sargable', '12', 'Function on column in WHERE prevents index usage (LOWER, TRIM, etc.)'],
             ['distinct-dedup', '25', 'DISTINCT with JOIN suggests join produces duplicates'],
+            ['join-count-squared', '1', 'Superlinear join cost \u2014 penalty scales quadratically with join count'],
         ]),
 
         createElement('h2', null, 'Memory/Compute Rules'),
@@ -43,6 +44,7 @@ export function Scoring() {
             ['Rule', 'Weight', 'Description'],
             ['subquery-nesting', '1 × depth', 'Each subquery nesting level multiplies penalty'],
             ['join', '1', 'Each JOIN adds a relationship to reason about'],
+            ['outer-join', '3', 'LEFT/RIGHT/FULL OUTER JOIN adds NULL-handling complexity'],
             ['boolean-nesting', '8 × depth', 'Nested AND/OR expressions compound cognitive load'],
             ['cte', '1', 'Each CTE adds a named scope to understand'],
             ['case-expression', '25', 'CASE adds conditional branching logic'],

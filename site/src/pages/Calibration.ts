@@ -27,7 +27,7 @@ export function Calibration() {
         ),
 
         createElement('h2', null, 'Schema Generation'),
-        createElement('p', null, '5 domain archetypes (e-commerce, blog, HR, inventory, analytics) are mutated to produce 10,000 schema variants:'),
+        createElement('p', null, '7 domain archetypes (e-commerce, blog, HR, inventory, analytics, cash accounting, accrual accounting) are mutated to produce 10,000 schema variants:'),
         createElement('ul', null,
             createElement('li', null, 'Drop individual indexes (tests non-sargable, unbounded-sort)'),
             createElement('li', null, 'Drop all indexes (full scan behavior)'),

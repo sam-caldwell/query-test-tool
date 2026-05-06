@@ -1,4 +1,4 @@
-module github.com/sqlscore
+module github.com/sam-caldwell/query-test-tool
 
 go 1.26.2
 

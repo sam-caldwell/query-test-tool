@@ -20,10 +20,16 @@ var RuleFeatures = []string{
 	"cartesian-product",
 	"subquery-nesting",
 	"join",
+	"outer-join",
 	"boolean-nesting",
 	"cte",
 	"case-expression",
 	"set-operation",
+	"join-count-squared",
+	"null-coalesce-in-predicate",
+	"null-check-chain",
+	"expensive-function",
+	"volatile-function",
 }
 
 // CalculateWeightsDirect computes weights by averaging cost ratios per rule.
@@ -151,7 +157,13 @@ func CalculateWeights(rows []RegressionRow) (*CalibratedWeights, error) {
 		}
 
 		for j, rule := range RuleFeatures {
-			X[i][j+1] = float64(findingCounts[rule])
+			if rule == "join-count-squared" {
+				// Derived feature: square of join count
+				jc := float64(findingCounts["join"])
+				X[i][j+1] = jc * jc
+			} else {
+				X[i][j+1] = float64(findingCounts[rule])
+			}
 		}
 
 		// Use log(cost_ratio) for better regression fit on multiplicative costs

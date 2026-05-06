@@ -3,12 +3,13 @@ package scorer
 import (
 	pg_query "github.com/pganalyze/pg_query_go/v6"
 
-	"github.com/sqlscore/parser"
+	"github.com/sam-caldwell/query-test-tool/parser"
 )
 
 // Cognitive complexity penalty accessors — values loaded from embedded weights.json.
 func PenaltySubqueryNesting() int { return Weight("subquery-nesting") }
 func PenaltyJoin() int            { return Weight("join") }
+func PenaltyOuterJoin() int       { return Weight("outer-join") }
 func PenaltyBooleanNesting() int  { return Weight("boolean-nesting") }
 func PenaltyCTE() int             { return Weight("cte") }
 func PenaltyCaseExpr() int        { return Weight("case-expression") }
@@ -141,6 +142,22 @@ func (s *CognitiveScorer) countJoins(node *pg_query.Node, ds *DimensionScore) {
 			Category:    "cognitive_complexity",
 		})
 		ds.Score += PenaltyJoin()
+
+		// Outer joins (LEFT, RIGHT, FULL) get an additional penalty because
+		// they produce NULL-padded rows that inflate intermediate result sets
+		// and force downstream operations into three-valued logic.
+		jt := j.JoinExpr.Jointype
+		if jt == pg_query.JoinType_JOIN_LEFT || jt == pg_query.JoinType_JOIN_RIGHT || jt == pg_query.JoinType_JOIN_FULL {
+			penalty := PenaltyOuterJoin()
+			ds.Findings = append(ds.Findings, Finding{
+				Rule:        "outer-join",
+				Description: "LEFT/RIGHT/FULL JOIN produces NULL-padded rows increasing downstream cost",
+				Penalty:     penalty,
+				Category:    "cognitive_complexity",
+			})
+			ds.Score += penalty
+		}
+
 		// Recurse into nested joins.
 		s.countJoins(j.JoinExpr.Larg, ds)
 		s.countJoins(j.JoinExpr.Rarg, ds)

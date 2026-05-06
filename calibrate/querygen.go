@@ -260,6 +260,36 @@ func (qg *QueryGenerator) allTemplates(d Domain) []queryTempl {
 			},
 		})
 
+		// 14a. LEFT JOIN (outer join)
+		tmpls = append(tmpls, queryTempl{
+			queryType: "left_join",
+			rules:     []string{"outer-join"},
+			gen: func(rng *rand.Rand) string {
+				return fmt.Sprintf("SELECT * FROM %s LEFT JOIN %s ON %s.%s = %s.id LIMIT 100",
+					jCopy.left, jCopy.right, jCopy.left, jCopy.leftCol, jCopy.right)
+			},
+		})
+
+		// 14b. RIGHT JOIN (outer join)
+		tmpls = append(tmpls, queryTempl{
+			queryType: "right_join",
+			rules:     []string{"outer-join"},
+			gen: func(rng *rand.Rand) string {
+				return fmt.Sprintf("SELECT * FROM %s RIGHT JOIN %s ON %s.%s = %s.id LIMIT 100",
+					jCopy.left, jCopy.right, jCopy.left, jCopy.leftCol, jCopy.right)
+			},
+		})
+
+		// 14c. FULL JOIN (outer join)
+		tmpls = append(tmpls, queryTempl{
+			queryType: "full_join",
+			rules:     []string{"outer-join"},
+			gen: func(rng *rand.Rand) string {
+				return fmt.Sprintf("SELECT * FROM %s FULL JOIN %s ON %s.%s = %s.id LIMIT 100",
+					jCopy.left, jCopy.right, jCopy.left, jCopy.leftCol, jCopy.right)
+			},
+		})
+
 		// 14. DISTINCT with JOIN (dedup)
 		tmpls = append(tmpls, queryTempl{
 			queryType: "distinct_join",

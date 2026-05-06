@@ -1,6 +1,6 @@
 package calibrate
 
-// Archetypes defines the 5 domain archetypes used for schema generation.
+// Archetypes defines the 7 domain archetypes used for schema generation.
 // Each represents a realistic business domain with proper normalization,
 // indexes, and constraints.
 func Archetypes() []Domain {

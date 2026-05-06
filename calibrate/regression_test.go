@@ -167,10 +167,16 @@ func TestValidateWeights(t *testing.T) {
 			"cartesian-product":  15.0,
 			"subquery-nesting":   3.0,
 			"join":               2.0,
+			"outer-join":         3.0,
 			"boolean-nesting":    2.0,
 			"cte":                2.0,
 			"case-expression":    1.0,
 			"set-operation":      3.0,
+			"join-count-squared":         1.0,
+			"null-coalesce-in-predicate": 2.0,
+			"null-check-chain":           2.0,
+			"expensive-function":         2.0,
+			"volatile-function":          3.0,
 		},
 	}
 	issues := ValidateWeights(good)
@@ -207,8 +213,8 @@ func TestValidateWeights(t *testing.T) {
 }
 
 func TestRuleFeatures(t *testing.T) {
-	if len(RuleFeatures) != 16 {
-		t.Errorf("expected 16 rule features, got %d", len(RuleFeatures))
+	if len(RuleFeatures) != 22 {
+		t.Errorf("expected 22 rule features, got %d", len(RuleFeatures))
 	}
 
 	seen := make(map[string]bool)

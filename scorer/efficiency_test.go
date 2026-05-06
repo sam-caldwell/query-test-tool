@@ -3,7 +3,7 @@ package scorer
 import (
 	"testing"
 
-	"github.com/sqlscore/parser"
+	"github.com/sam-caldwell/query-test-tool/parser"
 )
 
 func parseOrFatal(t *testing.T, sql string) {

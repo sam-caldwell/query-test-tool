@@ -7,7 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/sqlscore/scorer"
+	"github.com/sam-caldwell/query-test-tool/scorer"
 )
 
 // Runner executes EXPLAIN ANALYZE on queries across schema instances.

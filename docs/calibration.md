@@ -27,7 +27,7 @@ The core insight: if we know which antipatterns are present in a query (via sqls
 
 ## Schema Generation
 
-### Domain Archetypes (5 domains × ~2000 variants = 10,000 schemas)
+### Domain Archetypes (7 domains × ~1400 variants = 10,000 schemas)
 
 | Domain | Tables | Description |
 |--------|--------|-------------|
@@ -36,6 +36,8 @@ The core insight: if we know which antipatterns are present in a query (via sqls
 | HR | departments, employees, salaries, projects, assignments | Enterprise |
 | Inventory | warehouses, items, stock_levels, suppliers, purchase_orders | Supply chain |
 | Analytics | users, sessions, events, pages, conversions | Event tracking |
+| Cash Accounting | 7 tables, 20 indexes, 12 FKs | CPA firm, cash-basis accounting |
+| Accrual Accounting | 8 tables, 25 indexes, 10 FKs | Accounting firm, accrual-basis |
 
 ### Mutation Types
 

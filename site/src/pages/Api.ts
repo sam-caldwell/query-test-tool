@@ -8,7 +8,7 @@ export function Api() {
 
         createElement('h2', null, 'ScoreQuery'),
         createElement('pre', {},
-            'import "github.com/sqlscore/scorer"\n\n' +
+            'import "github.com/sam-caldwell/query-test-tool/scorer"\n\n' +
             'report, err := scorer.ScoreQuery("SELECT * FROM users ORDER BY name")\n' +
             'if err != nil {\n' +
             '    log.Fatal(err)\n' +
@@ -43,7 +43,7 @@ export function Api() {
 
         createElement('h2', null, 'Accessing Weights'),
         createElement('pre', {},
-            'import "github.com/sqlscore/scorer"\n\n' +
+            'import "github.com/sam-caldwell/query-test-tool/scorer"\n\n' +
             '// Get all loaded weights\n' +
             'w := scorer.Weights()\n' +
             'fmt.Printf("Version: %d\\n", w.Version)\n' +
@@ -54,7 +54,7 @@ export function Api() {
 
         createElement('h2', null, 'Parser Package'),
         createElement('pre', {},
-            'import "github.com/sqlscore/parser"\n\n' +
+            'import "github.com/sam-caldwell/query-test-tool/parser"\n\n' +
             '// Parse SQL into PostgreSQL AST\n' +
             'tree, err := parser.Parse("SELECT id FROM users WHERE id = 1")\n\n' +
             '// Walk the AST\n' +
