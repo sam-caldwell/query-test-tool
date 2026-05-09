@@ -49,7 +49,7 @@ func TestQueryGenerator_QueryTypes(t *testing.T) {
 	domain := Archetypes()[0]
 	qg := NewQueryGenerator(42)
 
-	queries := qg.GenerateQueries(domain, 1, 1000)
+	queries := qg.GenerateQueries(domain, 1, 5000)
 
 	expectedTypes := []string{
 		"select_star", "select_columns", "non_sargable", "sargable",
@@ -57,6 +57,12 @@ func TestQueryGenerator_QueryTypes(t *testing.T) {
 		"window_no_partition", "exists_subquery", "proper_join",
 		"distinct_join", "cte", "cartesian",
 		"left_join", "right_join", "full_join",
+		"coalesce_predicate", "like_leading_wildcard", "implicit_cast",
+		"large_offset", "large_in_list", "for_update",
+		"delete_no_where", "update_no_where", "insert_returning",
+		"grouping_sets", "expensive_func", "volatile_func",
+		"recursive_cte", "lateral_join", "multi_join",
+		"union_distinct", "ddl_create", "cascade_drop",
 	}
 
 	queryTypes := make(map[string]bool)
@@ -72,25 +78,33 @@ func TestQueryGenerator_QueryTypes(t *testing.T) {
 }
 
 func TestQueryGenerator_RuleCoverage(t *testing.T) {
-	domain := Archetypes()[0]
-	qg := NewQueryGenerator(42)
-
-	queries := qg.GenerateQueries(domain, 1, 2000)
-
+	// Check across all domains since some rules require domain-specific features
+	// (e.g., null-check-chain needs 3+ nullable columns on one table)
 	rulesSeen := make(map[string]bool)
-	for _, q := range queries {
-		for _, r := range q.TargetRules {
-			rulesSeen[r] = true
+	for _, domain := range Archetypes() {
+		qg := NewQueryGenerator(42)
+		queries := qg.GenerateQueries(domain, 1, 2000)
+		for _, q := range queries {
+			for _, r := range q.TargetRules {
+				rulesSeen[r] = true
+			}
 		}
 	}
 
-	// Should cover most rules
+	// Should cover all exercisable rules
 	expectedRules := []string{
 		"select-star", "non-sargable", "unbounded-sort",
 		"group-by-fanout", "window-function", "correlated-subquery",
 		"distinct-dedup", "cartesian-product", "missing-predicate",
 		"set-operation", "cte", "boolean-nesting", "case-expression",
 		"outer-join",
+		"null-coalesce-in-predicate", "null-check-chain",
+		"like-leading-wildcard", "implicit-cast-in-predicate",
+		"large-offset", "large-in-list", "for-update-lock",
+		"missing-where-clause", "returning-clause", "grouping-sets",
+		"expensive-function", "volatile-function",
+		"recursive-cte", "lateral-join", "union-distinct",
+		"ddl-statement", "cascade-drop",
 	}
 
 	for _, rule := range expectedRules {
@@ -112,9 +126,17 @@ func TestQueryGenerator_ValidSQL(t *testing.T) {
 			t.Error("empty SQL")
 			continue
 		}
-		// Basic validation: should start with SELECT or WITH
+		// Basic validation: should start with a valid SQL keyword
 		upper := strings.ToUpper(sql)
-		if !strings.HasPrefix(upper, "SELECT") && !strings.HasPrefix(upper, "WITH") {
+		validPrefixes := []string{"SELECT", "WITH", "INSERT", "UPDATE", "DELETE", "CREATE", "ALTER", "DROP"}
+		valid := false
+		for _, prefix := range validPrefixes {
+			if strings.HasPrefix(upper, prefix) {
+				valid = true
+				break
+			}
+		}
+		if !valid {
 			t.Errorf("unexpected SQL prefix: %s", sql[:min(50, len(sql))])
 		}
 	}

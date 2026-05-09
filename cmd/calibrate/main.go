@@ -1,14 +1,15 @@
 package main
 
 import (
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
-	"os/signal"
-	"syscall"
+	"strings"
 
 	"github.com/sam-caldwell/query-test-tool/calibrate"
 )
@@ -16,23 +17,41 @@ import (
 func main() {
 	var (
 		dsn          string
+		dbHost       string
+		dbPort       int
+		dbUser       string
+		dbPassword   string
+		dbName       string
+		dbSSLMode    string
 		phase        string
 		schemas      int
 		queries      int
 		rows         int
 		workers      int
+		batchSize    int
 		timeout      int
 		outputFile   string
+		logFile      string
 		schemaFile   string
 	)
 
-	flag.StringVar(&dsn, "dsn", "", "PostgreSQL connection string (default: postgres://localhost:5432/sqlscore_calibrate?sslmode=disable)")
+	flag.StringVar(&dsn, "dsn", "", "Full PostgreSQL connection string (overrides individual -host/-port/-user/-password/-dbname flags)")
+	flag.StringVar(&dbHost, "host", "localhost", "PostgreSQL host")
+	flag.IntVar(&dbPort, "port", 5432, "PostgreSQL port")
+	flag.StringVar(&dbUser, "user", "", "PostgreSQL user")
+	flag.StringVar(&dbPassword, "password", "", "PostgreSQL password")
+	flag.StringVar(&dbName, "dbname", "sqlscore_calibrate", "PostgreSQL database name")
+	flag.StringVar(&dbSSLMode, "sslmode", "disable", "PostgreSQL SSL mode (disable, require, verify-ca, verify-full)")
 	flag.StringVar(&phase, "phase", "all", "Pipeline phase: init, generate, run, calculate, or all")
-	flag.IntVar(&schemas, "schemas", 10000, "Target number of schema variants to generate")
-	flag.IntVar(&queries, "queries", 1000000, "Target number of queries to generate")
-	flag.IntVar(&rows, "rows", 1000, "Rows per table for data generation")
-	flag.IntVar(&workers, "workers", 8, "Concurrent EXPLAIN workers")
+	defaultCfg := calibrate.DefaultConfig()
+	flag.IntVar(&schemas, "schemas", defaultCfg.SchemaCount, "Target number of schema variants to generate")
+	flag.IntVar(&queries, "queries", defaultCfg.QueryCount, "Target number of queries to generate")
+	flag.IntVar(&rows, "rows", defaultCfg.RowsPerTable, "Base rows per table (tiered multipliers apply: 3× child, 5× hub, 10× high-volume)")
+	defaultWorkers := defaultCfg.Workers
+	flag.IntVar(&workers, "workers", defaultWorkers, fmt.Sprintf("Concurrent workers (auto-detected: %d = %d CPUs × 3)", defaultWorkers, defaultWorkers/3))
+	flag.IntVar(&batchSize, "batch-size", defaultCfg.BatchSize, "Schemas per batch in batch-and-drop mode (0 to disable)")
 	flag.IntVar(&timeout, "timeout", 5000, "Per-query statement timeout (ms)")
+	flag.StringVar(&logFile, "logfile", "", "Log file path (use .gz extension for gzip compression)")
 	flag.StringVar(&outputFile, "output", "scorer/weights.json", "Output file for calculated weights (embedded by cmd/sqlscore at build time)")
 	flag.StringVar(&schemaFile, "schema-file", "", "Path to a .SQL DDL file to import as an additional calibration domain")
 
@@ -70,28 +89,46 @@ Examples:
 
 	flag.Parse()
 
+	// Set up log output
+	if logFile != "" {
+		f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		if err != nil {
+			log.Fatalf("Failed to open log file: %v", err)
+		}
+		defer f.Close()
+
+		var logWriter io.Writer
+		if strings.HasSuffix(logFile, ".gz") {
+			gz := gzip.NewWriter(f)
+			defer gz.Close()
+			logWriter = gz
+		} else {
+			logWriter = f
+		}
+		// Write to both file and stderr so we can monitor via DB queries
+		// while still having a compressed log for debugging
+		log.SetOutput(io.MultiWriter(os.Stderr, logWriter))
+	}
+
 	cfg := calibrate.DefaultConfig()
 	if dsn != "" {
 		cfg.DSN = dsn
+	} else if dbUser != "" {
+		// Build DSN from individual flags
+		cfg.DSN = fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
+			dbUser, dbPassword, dbHost, dbPort, dbName, dbSSLMode)
 	}
 	cfg.SchemaCount = schemas
 	cfg.QueryCount = queries
 	cfg.RowsPerTable = rows
 	cfg.Workers = workers
+	cfg.BatchSize = batchSize
 	cfg.StatementTimeout = timeout
 	cfg.SchemaFile = schemaFile
 
-	// Setup context with signal handling
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		<-sigCh
-		log.Println("Received interrupt, shutting down gracefully...")
-		cancel()
-	}()
+	// Context for pipeline — signal handling is done inside the pipeline
+	// (graceful stop at batch boundary on first signal, force exit on second)
+	ctx := context.Background()
 
 	pipeline, err := calibrate.NewPipeline(cfg)
 	if err != nil {

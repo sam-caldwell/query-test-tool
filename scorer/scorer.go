@@ -60,6 +60,12 @@ func ScoreQuery(sql string) (*Report, error) {
 	// Function cost: expensive and volatile functions → efficiency.
 	scoreFunctionCost(tree, &eff)
 
+	// DML patterns: missing WHERE, large offset, recursive CTE, etc.
+	scoreDMLPatterns(tree, &eff, &mem, &cog)
+
+	// DDL patterns: CREATE, ALTER, DROP, CASCADE.
+	scoreDDLPatterns(tree, &cog)
+
 	return &Report{
 		SQL:              sql,
 		TotalScore:       eff.Score + mem.Score + cog.Score,

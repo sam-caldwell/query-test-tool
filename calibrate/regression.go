@@ -30,6 +30,19 @@ var RuleFeatures = []string{
 	"null-check-chain",
 	"expensive-function",
 	"volatile-function",
+	"missing-where-clause",
+	"large-offset",
+	"recursive-cte",
+	"large-in-list",
+	"like-leading-wildcard",
+	"implicit-cast-in-predicate",
+	"lateral-join",
+	"returning-clause",
+	"grouping-sets",
+	"for-update-lock",
+	"union-distinct",
+	"ddl-statement",
+	"cascade-drop",
 }
 
 // CalculateWeightsDirect computes weights by averaging cost ratios per rule.

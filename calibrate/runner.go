@@ -3,6 +3,7 @@ package calibrate
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"log"
 	"sync"
 	"sync/atomic"
@@ -10,15 +11,56 @@ import (
 	"github.com/sam-caldwell/query-test-tool/scorer"
 )
 
+// scoreCache caches scorer results by SQL hash to avoid redundant scoring.
+type scoreCache struct {
+	mu    sync.RWMutex
+	cache map[uint64]*scorer.Report
+}
+
+func newScoreCache() *scoreCache {
+	return &scoreCache{cache: make(map[uint64]*scorer.Report)}
+}
+
+func (sc *scoreCache) get(sqlHash uint64) (*scorer.Report, bool) {
+	sc.mu.RLock()
+	defer sc.mu.RUnlock()
+	r, ok := sc.cache[sqlHash]
+	return r, ok
+}
+
+func (sc *scoreCache) set(sqlHash uint64, r *scorer.Report) {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	sc.cache[sqlHash] = r
+}
+
+func hashSQL(sql string) uint64 {
+	h := fnv.New64a()
+	h.Write([]byte(sql))
+	return h.Sum64()
+}
+
 // Runner executes EXPLAIN ANALYZE on queries across schema instances.
 type Runner struct {
-	db  *DB
-	cfg PipelineConfig
+	db        *DB
+	cfg       PipelineConfig
+	scores    *scoreCache
+	throttler *AdaptiveThrottler
+	failCount int64
 }
 
 // NewRunner creates a new query runner.
 func NewRunner(db *DB, cfg PipelineConfig) *Runner {
-	return &Runner{db: db, cfg: cfg}
+	return &Runner{
+		db:     db,
+		cfg:    cfg,
+		scores: newScoreCache(),
+	}
+}
+
+// SetThrottler attaches an adaptive throttler to the runner.
+func (r *Runner) SetThrottler(t *AdaptiveThrottler) {
+	r.throttler = t
 }
 
 // RunJob represents a single EXPLAIN job.
@@ -90,9 +132,15 @@ func (r *Runner) RunAll(ctx context.Context, families []SchemaFamily, progress f
 		go func() {
 			defer wg.Done()
 			for job := range jobCh {
+				if r.throttler != nil {
+					r.throttler.Acquire()
+				}
 				if err := r.executeJob(ctx, job); err != nil {
-					log.Printf("EXPLAIN failed (schema=%s, query_type=%s): %v",
-						job.SchemaInstance.SchemaName, job.Query.QueryType, err)
+					// Silently count failures — per-query logging causes multi-GB log files
+					atomic.AddInt64(&r.failCount, 1)
+				}
+				if r.throttler != nil {
+					r.throttler.Release()
 				}
 				current := atomic.AddInt64(&done, 1)
 				if progress != nil && current%1000 == 0 {
@@ -113,6 +161,12 @@ func (r *Runner) RunAll(ctx context.Context, families []SchemaFamily, progress f
 	close(jobCh)
 	wg.Wait()
 
+	fails := atomic.LoadInt64(&r.failCount)
+	if fails > 0 {
+		log.Printf("  EXPLAIN: %d/%d succeeded, %d failed", total-fails, total, fails)
+		r.failCount = 0
+	}
+
 	return nil
 }
 
@@ -123,10 +177,16 @@ func (r *Runner) executeJob(ctx context.Context, job RunJob) error {
 		return err
 	}
 
-	// Score the query with sqlscore
-	report, err := scorer.ScoreQuery(job.Query.SQL)
-	if err != nil {
-		return fmt.Errorf("scoring query: %w", err)
+	// Score the query with sqlscore, using cache since score depends only on SQL text
+	sqlHash := hashSQL(job.Query.SQL)
+	report, ok := r.scores.get(sqlHash)
+	if !ok {
+		var scoreErr error
+		report, scoreErr = scorer.ScoreQuery(job.Query.SQL)
+		if scoreErr != nil {
+			return fmt.Errorf("scoring query: %w", scoreErr)
+		}
+		r.scores.set(sqlHash, report)
 	}
 
 	var findings []string

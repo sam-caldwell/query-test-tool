@@ -177,6 +177,19 @@ func TestValidateWeights(t *testing.T) {
 			"null-check-chain":           2.0,
 			"expensive-function":         2.0,
 			"volatile-function":          3.0,
+			"missing-where-clause":       15.0,
+			"large-offset":               8.0,
+			"recursive-cte":              10.0,
+			"large-in-list":              5.0,
+			"like-leading-wildcard":      10.0,
+			"implicit-cast-in-predicate": 10.0,
+			"lateral-join":               8.0,
+			"returning-clause":           2.0,
+			"grouping-sets":              8.0,
+			"for-update-lock":            5.0,
+			"union-distinct":             5.0,
+			"ddl-statement":              5.0,
+			"cascade-drop":               15.0,
 		},
 	}
 	issues := ValidateWeights(good)
@@ -213,8 +226,8 @@ func TestValidateWeights(t *testing.T) {
 }
 
 func TestRuleFeatures(t *testing.T) {
-	if len(RuleFeatures) != 22 {
-		t.Errorf("expected 22 rule features, got %d", len(RuleFeatures))
+	if len(RuleFeatures) != 35 {
+		t.Errorf("expected 35 rule features, got %d", len(RuleFeatures))
 	}
 
 	seen := make(map[string]bool)

@@ -8,8 +8,8 @@ import (
 
 func TestArchetypes(t *testing.T) {
 	domains := Archetypes()
-	if len(domains) != 7 {
-		t.Fatalf("expected 7 domains, got %d", len(domains))
+	if len(domains) != 4 {
+		t.Fatalf("expected 4 domains, got %d", len(domains))
 	}
 
 	for _, d := range domains {
@@ -30,7 +30,7 @@ func TestArchetypes(t *testing.T) {
 			}
 			// First column should be serial PK
 			if !table.Columns[0].IsSerial {
-				if table.Name != "post_tags" { // junction tables may not have serial PK
+				if false { // all remaining domains have serial PKs on every table
 					t.Errorf("domain %s, table %s: first column is not serial", d.Name, table.Name)
 				}
 			}
@@ -60,14 +60,14 @@ func TestArchetypes(t *testing.T) {
 }
 
 func TestGenerateDDL(t *testing.T) {
-	domain := Archetypes()[0] // ecommerce
+	domain := Archetypes()[0]
 	ddl := GenerateDDL(domain, "test_schema")
 
 	if !strings.Contains(ddl, "CREATE SCHEMA test_schema") {
 		t.Error("DDL should contain CREATE SCHEMA")
 	}
-	if !strings.Contains(ddl, "CREATE TABLE test_schema.users") {
-		t.Error("DDL should contain CREATE TABLE for users")
+	if !strings.Contains(ddl, "CREATE TABLE test_schema."+domain.Tables[0].Name) {
+		t.Errorf("DDL should contain CREATE TABLE for %s", domain.Tables[0].Name)
 	}
 	if !strings.Contains(ddl, "CREATE INDEX") || !strings.Contains(ddl, "CREATE UNIQUE INDEX") {
 		t.Error("DDL should contain CREATE INDEX")
@@ -256,8 +256,8 @@ func TestSchemaGenerator_GenerateAll(t *testing.T) {
 	sg := NewSchemaGenerator(42)
 	plans := sg.GenerateAll(100) // small count for testing
 
-	if len(plans) != 7 {
-		t.Errorf("expected 7 family plans, got %d", len(plans))
+	if len(plans) != 4 {
+		t.Errorf("expected 4 family plans, got %d", len(plans))
 	}
 
 	totalSchemas := 0

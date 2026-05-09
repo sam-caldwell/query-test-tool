@@ -6,15 +6,19 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 )
 
 // Pipeline orchestrates the complete calibration workflow.
 type Pipeline struct {
-	db  *DB
-	cfg PipelineConfig
+	db       *DB
+	cfg      PipelineConfig
+	stopOnce sync.Once
+	stopCh   chan struct{} // closed when graceful stop is requested
 }
 
 // NewPipeline creates a new calibration pipeline.
@@ -23,7 +27,35 @@ func NewPipeline(cfg PipelineConfig) (*Pipeline, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Pipeline{db: db, cfg: cfg}, nil
+	p := &Pipeline{db: db, cfg: cfg, stopCh: make(chan struct{})}
+	p.installSignalHandler()
+	return p, nil
+}
+
+// installSignalHandler listens for SIGINT/SIGTERM and requests a graceful stop
+// at the next batch boundary. A second signal forces immediate exit.
+func (p *Pipeline) installSignalHandler() {
+	sigCh := make(chan os.Signal, 2)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		sig := <-sigCh
+		log.Printf("Received %v — will stop after current batch completes (send again to force quit)", sig)
+		p.stopOnce.Do(func() { close(p.stopCh) })
+		// Second signal = hard exit
+		sig = <-sigCh
+		log.Printf("Received %v again — forcing immediate exit", sig)
+		os.Exit(1)
+	}()
+}
+
+// shouldStop returns true if a graceful stop has been requested.
+func (p *Pipeline) shouldStop() bool {
+	select {
+	case <-p.stopCh:
+		return true
+	default:
+		return false
+	}
 }
 
 // Close releases pipeline resources.
@@ -97,28 +129,52 @@ func (p *Pipeline) Generate(ctx context.Context) error {
 	}
 
 	var totalSchemas int64
-	var familyIDs []int
+	familyIDs := make([]int, len(familyPlans))
 
-	// First, register families and optimal schemas (sequential — small count)
-	for _, plan := range familyPlans {
+	// First, register families (sequential — needs IDs for later steps)
+	for i, plan := range familyPlans {
 		familyID, err := p.db.InsertFamily(ctx, plan.Domain.Name, plan.FamilyName, plan.Description)
 		if err != nil {
 			return fmt.Errorf("inserting family %s: %w", plan.FamilyName, err)
 		}
-		familyIDs = append(familyIDs, familyID)
+		familyIDs[i] = familyID
+	}
 
-		// Insert and apply optimal schema
-		if _, err := p.db.InsertSchemaInstance(ctx, familyID, plan.Optimal.SchemaName, true, nil, plan.Optimal.DDL); err != nil {
-			return fmt.Errorf("inserting optimal schema: %w", err)
+	// Apply optimal schemas concurrently across all families
+	{
+		var optWg sync.WaitGroup
+		optErrCh := make(chan error, len(familyPlans))
+		optSem := make(chan struct{}, p.cfg.Workers)
+		for i, plan := range familyPlans {
+			optWg.Add(1)
+			go func(idx int, pl SchemaFamilyPlan) {
+				defer optWg.Done()
+				optSem <- struct{}{}
+				defer func() { <-optSem }()
+
+				if _, err := p.db.InsertSchemaInstance(ctx, familyIDs[idx], pl.Optimal.SchemaName, true, nil, pl.Optimal.DDL); err != nil {
+					optErrCh <- fmt.Errorf("inserting optimal schema: %w", err)
+					return
+				}
+				if err := p.db.ApplySchema(ctx, pl.Optimal.SchemaName, pl.Optimal.DDL); err != nil {
+					optErrCh <- fmt.Errorf("applying optimal schema: %w", err)
+					return
+				}
+				dg := NewDataGenerator(p.db, p.cfg)
+				if err := dg.PopulateSchema(ctx, pl.Optimal.SchemaName, pl.Domain); err != nil {
+					optErrCh <- fmt.Errorf("populating optimal schema %s: %w", pl.Optimal.SchemaName, err)
+					return
+				}
+				atomic.AddInt64(&totalSchemas, 1)
+			}(i, plan)
 		}
-		if err := p.db.ApplySchema(ctx, plan.Optimal.SchemaName, plan.Optimal.DDL); err != nil {
-			return fmt.Errorf("applying optimal schema: %w", err)
+		optWg.Wait()
+		close(optErrCh)
+		for err := range optErrCh {
+			if err != nil {
+				return err
+			}
 		}
-		dg := NewDataGenerator(p.db, p.cfg)
-		if err := dg.PopulateSchema(ctx, plan.Optimal.SchemaName, plan.Domain); err != nil {
-			return fmt.Errorf("populating optimal schema %s: %w", plan.Optimal.SchemaName, err)
-		}
-		atomic.AddInt64(&totalSchemas, 1)
 	}
 
 	// Now create variants concurrently
@@ -172,36 +228,60 @@ func (p *Pipeline) Generate(ctx context.Context) error {
 
 	log.Printf("Created %d schemas in %v", atomic.LoadInt64(&totalSchemas), time.Since(start))
 
-	// Phase 2: Generate queries
+	// Phase 2: Generate queries (producer-consumer: overlap CPU gen with DB insertion)
 	log.Printf("Generating %d queries...", p.cfg.QueryCount)
 	queryStart := time.Now()
-	qg := NewQueryGenerator(time.Now().UnixNano())
 
 	queriesPerFamily := p.cfg.QueryCount / len(familyPlans)
-	totalQueries := 0
+	var totalQueries int64
 
-	for i, plan := range familyPlans {
-		queries := qg.GenerateQueries(plan.Domain, familyIDs[i], queriesPerFamily)
-
-		// Batch insert queries
-		batchSize := 1000
-		for j := 0; j < len(queries); j += batchSize {
-			end := j + batchSize
-			if end > len(queries) {
-				end = len(queries)
-			}
-			if err := p.db.InsertQueryBatch(ctx, queries[j:end]); err != nil {
-				return fmt.Errorf("inserting query batch: %w", err)
-			}
-		}
-		totalQueries += len(queries)
-
-		if (i+1)%1 == 0 {
-			log.Printf("  Generated queries for %d/%d families (%d total)",
-				i+1, len(familyPlans), totalQueries)
-		}
+	type queryBatch struct {
+		queries []GeneratedQuery
 	}
-	log.Printf("Generated %d queries in %v", totalQueries, time.Since(queryStart))
+	batchCh := make(chan queryBatch, len(familyPlans)*2)
+
+	// Consumer: batch-inserts queries as they arrive
+	var consumerWg sync.WaitGroup
+	var insertErr error
+	consumerWg.Add(1)
+	go func() {
+		defer consumerWg.Done()
+		for batch := range batchCh {
+			batchSize := 1000
+			for j := 0; j < len(batch.queries); j += batchSize {
+				end := j + batchSize
+				if end > len(batch.queries) {
+					end = len(batch.queries)
+				}
+				if err := p.db.InsertQueryBatch(ctx, batch.queries[j:end]); err != nil {
+					insertErr = fmt.Errorf("inserting query batch: %w", err)
+					return
+				}
+			}
+			n := atomic.AddInt64(&totalQueries, int64(len(batch.queries)))
+			log.Printf("  Inserted %d queries so far...", n)
+		}
+	}()
+
+	// Producers: generate queries for all families concurrently
+	var genWg sync.WaitGroup
+	for i, plan := range familyPlans {
+		genWg.Add(1)
+		go func(idx int, pl SchemaFamilyPlan) {
+			defer genWg.Done()
+			qg := NewQueryGenerator(time.Now().UnixNano() + int64(idx))
+			queries := qg.GenerateQueries(pl.Domain, familyIDs[idx], queriesPerFamily)
+			batchCh <- queryBatch{queries: queries}
+		}(i, plan)
+	}
+	genWg.Wait()
+	close(batchCh)
+	consumerWg.Wait()
+
+	if insertErr != nil {
+		return insertErr
+	}
+	log.Printf("Generated %d queries in %v", atomic.LoadInt64(&totalQueries), time.Since(queryStart))
 
 	return nil
 }
@@ -231,6 +311,9 @@ func (p *Pipeline) Run(ctx context.Context) error {
 	}
 
 	runner := NewRunner(p.db, p.cfg)
+	throttler := NewAdaptiveThrottler(p.cfg.Workers)
+	defer throttler.Stop()
+	runner.SetThrottler(throttler)
 	if err := runner.RunAll(ctx, families, ProgressLogger); err != nil {
 		return err
 	}
@@ -275,8 +358,13 @@ func (p *Pipeline) Calculate(ctx context.Context) (*CalibratedWeights, error) {
 	return weights, nil
 }
 
-// All runs the complete pipeline: init → generate → run → calculate.
+// All runs the complete pipeline. When BatchSize > 0, uses batch-and-drop mode
+// to limit peak disk usage: creates a batch of schemas, runs EXPLAIN ANALYZE,
+// stores results, then drops the schemas before creating the next batch.
 func (p *Pipeline) All(ctx context.Context) (*CalibratedWeights, error) {
+	if p.cfg.BatchSize > 0 {
+		return p.AllBatched(ctx)
+	}
 	if err := p.Init(ctx); err != nil {
 		return nil, fmt.Errorf("init: %w", err)
 	}
@@ -286,6 +374,272 @@ func (p *Pipeline) All(ctx context.Context) (*CalibratedWeights, error) {
 	if err := p.Run(ctx); err != nil {
 		return nil, fmt.Errorf("run: %w", err)
 	}
+	return p.Calculate(ctx)
+}
+
+// AllBatched runs the calibration pipeline in batch-and-drop mode.
+// Fully reentrant — the DB is the source of truth:
+//   - Checks existing families, schema instances, queries, and results
+//   - Only generates what's missing
+//   - Resumes from the exact schema where a prior run was interrupted
+//   - Random seed is NOT fixed — new schemas on each run, prior schemas preserved
+func (p *Pipeline) AllBatched(ctx context.Context) (*CalibratedWeights, error) {
+	if err := p.Init(ctx); err != nil {
+		return nil, fmt.Errorf("init: %w", err)
+	}
+
+	start := time.Now()
+	batchSize := p.cfg.BatchSize
+	if batchSize <= 0 {
+		batchSize = 10
+	}
+
+	// Clean up orphan data schemas from prior interrupted runs
+	orphans, err := p.db.DropOrphanSchemas(ctx)
+	if err != nil {
+		log.Printf("Warning: orphan cleanup failed: %v", err)
+	} else if orphans > 0 {
+		log.Printf("Cleaned up %d orphan schemas from prior run", orphans)
+	}
+
+	// Check existing state
+	existingResults, _ := p.db.CountTotalResults(ctx)
+	if existingResults > 0 {
+		log.Printf("Resuming: found %d existing results from prior run", existingResults)
+	}
+
+	// Phase 1: Ensure all families are registered
+	sg := NewSchemaGenerator(time.Now().UnixNano())
+	familyPlans := sg.GenerateAll(p.cfg.SchemaCount)
+
+	existingFamilies, err := p.db.GetExistingFamilies(ctx)
+	if err != nil {
+		// Table might be empty, that's fine
+		existingFamilies = make(map[string]int)
+	}
+
+	var familyIDs []int
+	var newFamilies, reusedFamilies int
+	for _, plan := range familyPlans {
+		if existingID, ok := existingFamilies[plan.FamilyName]; ok {
+			familyIDs = append(familyIDs, existingID)
+			reusedFamilies++
+		} else {
+			familyID, err := p.db.InsertFamily(ctx, plan.Domain.Name, plan.FamilyName, plan.Description)
+			if err != nil {
+				return nil, fmt.Errorf("inserting family %s: %w", plan.FamilyName, err)
+			}
+			familyIDs = append(familyIDs, familyID)
+			newFamilies++
+		}
+	}
+	if reusedFamilies > 0 {
+		log.Printf("Families: %d reused, %d new", reusedFamilies, newFamilies)
+	}
+
+	// Phase 2: Register all schema instances (idempotent — ON CONFLICT)
+	type schemaWork struct {
+		familyIdx int
+		instance  SchemaInstance
+		domain    Domain
+		isOptimal bool
+	}
+	var allWork []schemaWork
+	var newSchemas, existingSchemas int
+	for i, plan := range familyPlans {
+		// Check how many instances this family already has
+		existingCount, _ := p.db.CountSchemaInstancesForFamily(ctx, familyIDs[i])
+
+		// Register optimal
+		if _, err := p.db.InsertSchemaInstance(ctx, familyIDs[i], plan.Optimal.SchemaName, true, plan.Optimal.Mutations, plan.Optimal.DDL); err != nil {
+			log.Printf("Warning: failed to register schema %s: %v", plan.Optimal.SchemaName, err)
+		}
+		allWork = append(allWork, schemaWork{
+			familyIdx: i,
+			instance:  plan.Optimal,
+			domain:    plan.Domain,
+			isOptimal: true,
+		})
+
+		// Register variants
+		for _, v := range plan.Variants {
+			if _, err := p.db.InsertSchemaInstance(ctx, familyIDs[i], v.SchemaName, false, v.Mutations, v.DDL); err != nil {
+				log.Printf("Warning: failed to register schema %s: %v", v.SchemaName, err)
+			}
+			allWork = append(allWork, schemaWork{
+				familyIdx: i,
+				instance:  v,
+				domain:    plan.Domain,
+				isOptimal: false,
+			})
+		}
+
+		expectedCount := 1 + len(plan.Variants) // optimal + variants
+		if existingCount >= expectedCount {
+			existingSchemas += existingCount
+		} else {
+			newSchemas += expectedCount
+		}
+	}
+	log.Printf("Schema instances: %d registered (%d new, %d existing)",
+		len(allWork), newSchemas, existingSchemas)
+
+	// Phase 3: Generate queries for families that need them
+	queriesPerFamily := p.cfg.QueryCount / len(familyPlans)
+	var queriesGenerated, queriesReused int
+	for i, plan := range familyPlans {
+		existing, err := p.db.CountQueriesForFamily(ctx, familyIDs[i])
+		if err != nil {
+			return nil, fmt.Errorf("checking queries for family %d: %w", familyIDs[i], err)
+		}
+		if existing >= queriesPerFamily {
+			queriesReused += existing
+			continue
+		}
+		log.Printf("Generating %d queries for family %s...", queriesPerFamily, plan.FamilyName)
+		qg := NewQueryGenerator(time.Now().UnixNano() + int64(i))
+		queries := qg.GenerateQueries(plan.Domain, familyIDs[i], queriesPerFamily)
+		insertBatchSize := 1000
+		for j := 0; j < len(queries); j += insertBatchSize {
+			end := j + insertBatchSize
+			if end > len(queries) {
+				end = len(queries)
+			}
+			if err := p.db.InsertQueryBatch(ctx, queries[j:end]); err != nil {
+				return nil, fmt.Errorf("inserting query batch: %w", err)
+			}
+		}
+		queriesGenerated += len(queries)
+	}
+	if queriesReused > 0 {
+		log.Printf("Queries: %d new, %d reused from prior run", queriesGenerated, queriesReused)
+	} else if queriesGenerated > 0 {
+		log.Printf("Query generation complete: %d queries", queriesGenerated)
+	}
+
+	// Phase 4: Find schemas that still need EXPLAIN results
+	pendingSchemas, err := p.db.GetSchemasWithoutResults(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("checking pending schemas: %w", err)
+	}
+
+	totalSchemas := len(allWork)
+	completedSchemas := totalSchemas - len(pendingSchemas)
+	if completedSchemas > 0 {
+		log.Printf("Progress: %d/%d schemas already have results, %d remaining",
+			completedSchemas, totalSchemas, len(pendingSchemas))
+	}
+
+	if len(pendingSchemas) == 0 {
+		log.Printf("All schemas have results — skipping to weight calculation")
+		return p.Calculate(ctx)
+	}
+
+	// Build a lookup from schema name to work item for pending schemas
+	workByName := make(map[string]schemaWork)
+	for _, w := range allWork {
+		workByName[w.instance.SchemaName] = w
+	}
+
+	// Process pending schemas in batches
+	runner := NewRunner(p.db, p.cfg)
+	throttler := NewAdaptiveThrottler(p.cfg.Workers)
+	defer throttler.Stop()
+	runner.SetThrottler(throttler)
+
+	totalBatches := (len(pendingSchemas) + batchSize - 1) / batchSize
+	log.Printf("Batch-and-drop: %d pending schemas, batch size %d, %d batches",
+		len(pendingSchemas), batchSize, totalBatches)
+
+	var totalProcessed int64
+	for batchStart := 0; batchStart < len(pendingSchemas); batchStart += batchSize {
+		// Check for graceful stop between batches
+		if p.shouldStop() {
+			log.Printf("Graceful stop requested — stopping after %d schemas processed (%d results persisted)",
+				atomic.LoadInt64(&totalProcessed), completedSchemas+int(atomic.LoadInt64(&totalProcessed)))
+			break
+		}
+
+		batchEnd := batchStart + batchSize
+		if batchEnd > len(pendingSchemas) {
+			batchEnd = len(pendingSchemas)
+		}
+		batchNames := pendingSchemas[batchStart:batchEnd]
+		batchNum := batchStart/batchSize + 1
+
+		log.Printf("=== Batch %d/%d: %d schemas ===", batchNum, totalBatches, len(batchNames))
+
+		// 1. Create and populate schemas in this batch (concurrently)
+		var createdNames []string
+		var schemaMu sync.Mutex
+		var batchWg sync.WaitGroup
+		for _, name := range batchNames {
+			w, ok := workByName[name]
+			if !ok {
+				log.Printf("Warning: no work item for schema %s, skipping", name)
+				continue
+			}
+			batchWg.Add(1)
+			go func(w schemaWork) {
+				defer batchWg.Done()
+				if err := p.db.ApplySchema(ctx, w.instance.SchemaName, w.instance.DDL); err != nil {
+					log.Printf("Warning: failed to apply schema %s: %v", w.instance.SchemaName, err)
+					return
+				}
+				dg := NewDataGenerator(p.db, p.cfg)
+				if err := dg.PopulateSchema(ctx, w.instance.SchemaName, w.domain); err != nil {
+					log.Printf("Warning: failed to populate %s: %v", w.instance.SchemaName, err)
+					return
+				}
+				schemaMu.Lock()
+				createdNames = append(createdNames, w.instance.SchemaName)
+				schemaMu.Unlock()
+			}(w)
+		}
+		batchWg.Wait()
+		log.Printf("  Created %d schemas", len(createdNames))
+
+		// 2. Run EXPLAIN ANALYZE for schemas in this batch
+		var batchFamilies []SchemaFamily
+		familySeen := make(map[int]bool)
+		for _, name := range batchNames {
+			w, ok := workByName[name]
+			if !ok {
+				continue
+			}
+			fid := familyIDs[w.familyIdx]
+			if !familySeen[fid] {
+				familySeen[fid] = true
+				batchFamilies = append(batchFamilies, SchemaFamily{
+					ID:     fid,
+					Domain: w.domain.Name,
+					Name:   familyPlans[w.familyIdx].FamilyName,
+				})
+			}
+		}
+
+		if err := runner.RunAll(ctx, batchFamilies, func(done, total int64) {
+			if done%1000 == 0 {
+				log.Printf("  Batch %d EXPLAIN progress: %d/%d", batchNum, done, total)
+			}
+		}); err != nil {
+			log.Printf("Warning: EXPLAIN batch %d had errors: %v", batchNum, err)
+		}
+
+		// 3. Drop schemas to free disk
+		for _, name := range createdNames {
+			if _, err := p.db.conn.ExecContext(ctx, fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", name)); err != nil {
+				log.Printf("Warning: failed to drop schema %s: %v", name, err)
+			}
+		}
+		log.Printf("  Dropped %d schemas to free disk", len(createdNames))
+
+		atomic.AddInt64(&totalProcessed, int64(len(createdNames)))
+	}
+
+	log.Printf("Batch processing complete: %d new + %d prior = %d total schemas, %v elapsed",
+		atomic.LoadInt64(&totalProcessed), completedSchemas, totalSchemas, time.Since(start))
+
 	return p.Calculate(ctx)
 }
 

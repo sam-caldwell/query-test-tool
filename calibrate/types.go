@@ -5,6 +5,7 @@ package calibrate
 
 import (
 	"encoding/json"
+	"runtime"
 	"time"
 )
 
@@ -129,23 +130,32 @@ type CalibratedWeights struct {
 // PipelineConfig holds configuration for the calibration pipeline.
 type PipelineConfig struct {
 	DSN            string
-	SchemaCount    int // target number of schemas (default 10000)
+	SchemaCount    int // target number of schemas (default 5000)
 	QueryCount     int // target number of queries (default 1000000)
-	RowsPerTable   int // rows to generate per table (default 1000)
+	RowsPerTable   int // base rows per table (default 70000; tiered multipliers apply)
 	Workers        int // concurrency for EXPLAIN execution
+	BatchSize      int // schemas per batch in batch-and-drop mode (default 10)
 	StatementTimeout int // per-query timeout in ms
 	DatabaseName   string // database to use
 	SchemaFile     string // optional .SQL file for custom schema import
 }
 
-// DefaultConfig returns a PipelineConfig with sensible defaults.
+// DefaultConfig returns a PipelineConfig with hardware-aware defaults.
+// Workers are set to 3× NumCPU, which balances I/O-bound work against
+// system stability. The calibrate binary will also tune PostgreSQL's
+// max_connections to match at startup.
 func DefaultConfig() PipelineConfig {
+	workers := runtime.NumCPU() * 3
+	if workers < 4 {
+		workers = 4
+	}
 	return PipelineConfig{
 		DSN:              "postgres://localhost:5432/sqlscore_calibrate?sslmode=disable",
-		SchemaCount:      10000,
+		SchemaCount:      5000,
 		QueryCount:       1000000,
-		RowsPerTable:     1000,
-		Workers:          8,
+		RowsPerTable:     70000,
+		BatchSize:        10,
+		Workers:          workers,
 		StatementTimeout: 5000,
 		DatabaseName:     "sqlscore_calibrate",
 	}

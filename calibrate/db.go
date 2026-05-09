@@ -5,7 +5,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
+	"os/exec"
 	"strings"
+	"time"
 
 	_ "github.com/lib/pq"
 )
@@ -16,17 +19,124 @@ type DB struct {
 	cfg  PipelineConfig
 }
 
-// NewDB creates a new calibration database connection.
+// NewDB creates a new calibration database connection. It auto-tunes
+// PostgreSQL's max_connections to match the worker count if needed,
+// and configures the Go connection pool to leave headroom for PG
+// internal connections (autovacuum, stats, replication, etc.).
 func NewDB(cfg PipelineConfig) (*DB, error) {
+	// First, open a single connection to check and tune PG settings
 	conn, err := sql.Open("postgres", cfg.DSN)
 	if err != nil {
 		return nil, fmt.Errorf("connecting to database: %w", err)
 	}
-	conn.SetMaxOpenConns(cfg.Workers + 2)
+
 	if err := conn.Ping(); err != nil {
 		return nil, fmt.Errorf("pinging database: %w", err)
 	}
+
+	// Check current max_connections and tune if needed.
+	// This may restart PostgreSQL, killing our connection.
+	if err := tunePGConnections(conn, cfg.Workers); err != nil {
+		log.Printf("Warning: could not tune PostgreSQL connections: %v", err)
+	}
+
+	// Reconnect in case PG was restarted
+	if err := conn.Ping(); err != nil {
+		conn.Close()
+		conn, err = sql.Open("postgres", cfg.DSN)
+		if err != nil {
+			return nil, fmt.Errorf("reconnecting after PG tune: %w", err)
+		}
+		// Wait for PG to be fully ready
+		for i := 0; i < 10; i++ {
+			if err := conn.Ping(); err == nil {
+				break
+			}
+			time.Sleep(time.Second)
+		}
+		if err := conn.Ping(); err != nil {
+			return nil, fmt.Errorf("PostgreSQL not ready after restart: %w", err)
+		}
+	}
+
+	poolSize := cfg.Workers
+	conn.SetMaxOpenConns(poolSize)
+	conn.SetMaxIdleConns(poolSize)
+	conn.SetConnMaxLifetime(30 * time.Minute)
+
 	return &DB{conn: conn, cfg: cfg}, nil
+}
+
+// tunePGConnections checks PostgreSQL's max_connections and increases it
+// if the current setting is too low for the requested worker count.
+// Requires superuser privileges. If ALTER SYSTEM succeeds, it reloads
+// the configuration (pg_reload_conf) to apply without a restart.
+func tunePGConnections(conn *sql.DB, workers int) error {
+	// We need workers + headroom for PG internal connections
+	required := workers + 15 // 15 for autovacuum, stats, superuser slots
+
+	var current int
+	if err := conn.QueryRow("SHOW max_connections").Scan(&current); err != nil {
+		return fmt.Errorf("querying max_connections: %w", err)
+	}
+
+	if current >= required {
+		log.Printf("PostgreSQL max_connections=%d (sufficient for %d workers + 15 reserved)", current, workers)
+		return nil
+	}
+
+	log.Printf("PostgreSQL max_connections=%d is too low for %d workers; increasing to %d", current, workers, required)
+
+	// ALTER SYSTEM writes to postgresql.auto.conf
+	_, err := conn.Exec(fmt.Sprintf("ALTER SYSTEM SET max_connections = %d", required))
+	if err != nil {
+		return fmt.Errorf("ALTER SYSTEM SET max_connections: %w (may need superuser)", err)
+	}
+
+	// max_connections requires a full restart, not just reload
+	log.Printf("max_connections changed to %d — restarting PostgreSQL to apply...", required)
+
+	if err := restartPostgreSQL(); err != nil {
+		return fmt.Errorf("max_connections updated to %d in postgresql.auto.conf but restart failed: %w — restart PostgreSQL manually and re-run", required, err)
+	}
+
+	// Verify the new setting took effect
+	var newMax int
+	if err := conn.QueryRow("SHOW max_connections").Scan(&newMax); err != nil {
+		// Connection may have been dropped by restart; this is expected
+		log.Printf("Connection dropped during restart (expected) — will reconnect")
+		return nil
+	}
+	if newMax >= required {
+		log.Printf("PostgreSQL restarted successfully — max_connections now %d", newMax)
+	}
+
+	return nil
+}
+
+// restartPostgreSQL attempts to restart the PostgreSQL service.
+// Tries common service management commands in order of preference.
+func restartPostgreSQL() error {
+	cmds := [][]string{
+		{"sudo", "service", "postgresql", "restart"},
+		{"sudo", "systemctl", "restart", "postgresql"},
+		{"sudo", "pg_ctlcluster", "16", "main", "restart"},
+		{"pg_ctl", "restart", "-D", "/var/lib/postgresql/16/main", "-m", "fast"},
+	}
+
+	for _, cmd := range cmds {
+		c := exec.Command(cmd[0], cmd[1:]...)
+		if output, err := c.CombinedOutput(); err == nil {
+			log.Printf("PostgreSQL restarted via: %s", strings.Join(cmd, " "))
+			// Wait for PG to be ready
+			time.Sleep(2 * time.Second)
+			return nil
+		} else {
+			log.Printf("Restart attempt %q failed: %v (%s)", strings.Join(cmd, " "), err, strings.TrimSpace(string(output)))
+		}
+	}
+
+	return fmt.Errorf("all restart methods failed — restart PostgreSQL manually")
 }
 
 // Close closes the database connection.
@@ -169,6 +279,129 @@ func (db *DB) InsertQueryBatch(ctx context.Context, queries []GeneratedQuery) er
 		}
 	}
 	return tx.Commit()
+}
+
+// CountQueriesForFamily returns how many queries exist for a given family.
+func (db *DB) CountQueriesForFamily(ctx context.Context, familyID int) (int, error) {
+	var count int
+	err := db.conn.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM calibration.queries WHERE family_id = $1`, familyID).Scan(&count)
+	return count, err
+}
+
+// SchemaHasResults returns true if a schema instance has any EXPLAIN results.
+func (db *DB) SchemaHasResults(ctx context.Context, schemaName string) (bool, error) {
+	var count int
+	err := db.conn.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM calibration.results r
+		 JOIN calibration.schema_instances si ON r.schema_instance_id = si.id
+		 WHERE si.schema_name = $1`, schemaName).Scan(&count)
+	return count > 0, err
+}
+
+// DropOrphanSchemas drops any data schemas (cal_*) that still exist in the database.
+// These are leftovers from interrupted batch runs.
+func (db *DB) DropOrphanSchemas(ctx context.Context) (int, error) {
+	rows, err := db.conn.QueryContext(ctx,
+		`SELECT schema_name FROM information_schema.schemata
+		 WHERE schema_name LIKE 'cal\_%' AND schema_name != 'calibration'`)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	var orphans []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return 0, err
+		}
+		orphans = append(orphans, name)
+	}
+
+	for _, name := range orphans {
+		if _, err := db.conn.ExecContext(ctx, fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", name)); err != nil {
+			log.Printf("Warning: failed to drop orphan schema %s: %v", name, err)
+		}
+	}
+	return len(orphans), nil
+}
+
+// GetExistingFamilies returns all families already registered in the DB.
+func (db *DB) GetExistingFamilies(ctx context.Context) (map[string]int, error) {
+	rows, err := db.conn.QueryContext(ctx,
+		`SELECT name, id FROM calibration.families`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[string]int)
+	for rows.Next() {
+		var name string
+		var id int
+		if err := rows.Scan(&name, &id); err != nil {
+			return nil, err
+		}
+		result[name] = id
+	}
+	return result, nil
+}
+
+// CountSchemaInstancesForFamily returns how many schema instances exist for a family.
+func (db *DB) CountSchemaInstancesForFamily(ctx context.Context, familyID int) (int, error) {
+	var count int
+	err := db.conn.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM calibration.schema_instances WHERE family_id = $1`, familyID).Scan(&count)
+	return count, err
+}
+
+// GetSchemasWithoutResults returns schema names that have no EXPLAIN results yet.
+func (db *DB) GetSchemasWithoutResults(ctx context.Context) ([]string, error) {
+	rows, err := db.conn.QueryContext(ctx,
+		`SELECT si.schema_name FROM calibration.schema_instances si
+		 WHERE NOT EXISTS (
+			 SELECT 1 FROM calibration.results r WHERE r.schema_instance_id = si.id
+		 )
+		 ORDER BY si.id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var names []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		names = append(names, name)
+	}
+	return names, nil
+}
+
+// GetSchemaWorkByName retrieves a schema instance's details by name.
+func (db *DB) GetSchemaWorkByName(ctx context.Context, schemaName string) (familyID int, ddl string, isOptimal bool, err error) {
+	err = db.conn.QueryRowContext(ctx,
+		`SELECT family_id, ddl, is_optimal FROM calibration.schema_instances WHERE schema_name = $1`,
+		schemaName).Scan(&familyID, &ddl, &isOptimal)
+	return
+}
+
+// GetFamilyDomain returns the domain name for a family.
+func (db *DB) GetFamilyDomain(ctx context.Context, familyID int) (string, error) {
+	var domain string
+	err := db.conn.QueryRowContext(ctx,
+		`SELECT domain FROM calibration.families WHERE id = $1`, familyID).Scan(&domain)
+	return domain, err
+}
+
+// CountTotalResults returns total number of EXPLAIN results collected.
+func (db *DB) CountTotalResults(ctx context.Context) (int, error) {
+	var count int
+	err := db.conn.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM calibration.results`).Scan(&count)
+	return count, err
 }
 
 // RunExplain executes EXPLAIN (ANALYZE, FORMAT JSON) for a query within a schema.

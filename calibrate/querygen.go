@@ -347,6 +347,367 @@ func (qg *QueryGenerator) allTemplates(d Domain) []queryTempl {
 		},
 	})
 
+	// --- New rule templates ---
+
+	// 18a. COALESCE in WHERE (null-coalesce-in-predicate)
+	for _, table := range tables {
+		t := table
+		// Find nullable columns
+		var nullableCols []ColumnDef
+		for _, c := range t.Columns {
+			if !c.IsSerial && !c.NotNull {
+				nullableCols = append(nullableCols, c)
+			}
+		}
+		if len(nullableCols) > 0 {
+			tmpls = append(tmpls, queryTempl{
+				queryType: "coalesce_predicate",
+				rules:     []string{"null-coalesce-in-predicate"},
+				gen: func(rng *rand.Rand) string {
+					col := nullableCols[rng.Intn(len(nullableCols))]
+					return fmt.Sprintf("SELECT * FROM %s WHERE COALESCE(%s, %s) = %s",
+						t.Name, col.Name, sampleValue(col.Type, rng), sampleValue(col.Type, rng))
+				},
+			})
+		}
+
+		cols := nonSerialCols(t)
+
+		// 18b. Null check chain (3+ IS NULL checks)
+		if len(nullableCols) >= 3 {
+			tmpls = append(tmpls, queryTempl{
+				queryType: "null_check_chain",
+				rules:     []string{"null-check-chain"},
+				gen: func(rng *rand.Rand) string {
+					var checks []string
+					used := make(map[int]bool)
+					for len(checks) < 3 && len(used) < len(nullableCols) {
+						idx := rng.Intn(len(nullableCols))
+						if used[idx] {
+							continue
+						}
+						used[idx] = true
+						if rng.Intn(2) == 0 {
+							checks = append(checks, fmt.Sprintf("%s IS NULL", nullableCols[idx].Name))
+						} else {
+							checks = append(checks, fmt.Sprintf("%s IS NOT NULL", nullableCols[idx].Name))
+						}
+					}
+					return fmt.Sprintf("SELECT * FROM %s WHERE %s",
+						t.Name, strings.Join(checks, " AND "))
+				},
+			})
+		}
+
+		// 18c. LIKE with leading wildcard
+		var textCols []ColumnDef
+		for _, c := range cols {
+			if strings.HasPrefix(c.Type, "VARCHAR") || c.Type == "TEXT" {
+				textCols = append(textCols, c)
+			}
+		}
+		if len(textCols) > 0 {
+			tmpls = append(tmpls, queryTempl{
+				queryType: "like_leading_wildcard",
+				rules:     []string{"like-leading-wildcard"},
+				gen: func(rng *rand.Rand) string {
+					col := textCols[rng.Intn(len(textCols))]
+					return fmt.Sprintf("SELECT * FROM %s WHERE %s LIKE '%%value_%d'",
+						t.Name, col.Name, rng.Intn(100))
+				},
+			})
+		}
+
+		// 18d. Implicit cast in predicate
+		var intCols []ColumnDef
+		for _, c := range cols {
+			if c.Type == "INT" || c.Type == "BIGINT" || c.Type == "SMALLINT" {
+				intCols = append(intCols, c)
+			}
+		}
+		if len(intCols) > 0 {
+			tmpls = append(tmpls, queryTempl{
+				queryType: "implicit_cast",
+				rules:     []string{"implicit-cast-in-predicate"},
+				gen: func(rng *rand.Rand) string {
+					col := intCols[rng.Intn(len(intCols))]
+					return fmt.Sprintf("SELECT * FROM %s WHERE %s::text = '%d'",
+						t.Name, col.Name, rng.Intn(1000))
+				},
+			})
+		}
+
+		// 18e. Large OFFSET
+		tmpls = append(tmpls, queryTempl{
+			queryType: "large_offset",
+			rules:     []string{"large-offset"},
+			gen: func(rng *rand.Rand) string {
+				offset := 200 + rng.Intn(800)
+				return fmt.Sprintf("SELECT * FROM %s ORDER BY id LIMIT 10 OFFSET %d", t.Name, offset)
+			},
+		})
+
+		// 18f. Large IN list (25+ values)
+		tmpls = append(tmpls, queryTempl{
+			queryType: "large_in_list",
+			rules:     []string{"large-in-list"},
+			gen: func(rng *rand.Rand) string {
+				n := 25 + rng.Intn(25)
+				vals := make([]string, n)
+				for i := range vals {
+					vals[i] = fmt.Sprintf("%d", rng.Intn(10000))
+				}
+				return fmt.Sprintf("SELECT * FROM %s WHERE id IN (%s)",
+					t.Name, strings.Join(vals, ","))
+			},
+		})
+
+		// 18g. FOR UPDATE lock
+		tmpls = append(tmpls, queryTempl{
+			queryType: "for_update",
+			rules:     []string{"for-update-lock"},
+			gen: func(rng *rand.Rand) string {
+				return fmt.Sprintf("SELECT * FROM %s WHERE id = %d FOR UPDATE",
+					t.Name, 1+rng.Intn(1000))
+			},
+		})
+
+		// 18h. DELETE without WHERE (missing-where-clause)
+		tmpls = append(tmpls, queryTempl{
+			queryType: "delete_no_where",
+			rules:     []string{"missing-where-clause"},
+			gen: func(rng *rand.Rand) string {
+				return fmt.Sprintf("DELETE FROM %s", t.Name)
+			},
+		})
+
+		// 18i. UPDATE without WHERE (missing-where-clause)
+		if len(cols) > 0 {
+			tmpls = append(tmpls, queryTempl{
+				queryType: "update_no_where",
+				rules:     []string{"missing-where-clause"},
+				gen: func(rng *rand.Rand) string {
+					col := cols[rng.Intn(len(cols))]
+					return fmt.Sprintf("UPDATE %s SET %s = %s",
+						t.Name, col.Name, sampleValue(col.Type, rng))
+				},
+			})
+		}
+
+		// 18j. INSERT...RETURNING
+		if len(cols) >= 2 {
+			tmpls = append(tmpls, queryTempl{
+				queryType: "insert_returning",
+				rules:     []string{"returning-clause"},
+				gen: func(rng *rand.Rand) string {
+					col := cols[0]
+					return fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s) RETURNING *",
+						t.Name, col.Name, sampleValue(col.Type, rng))
+				},
+			})
+		}
+
+		// 18k. GROUP BY ROLLUP (grouping-sets)
+		if len(cols) >= 2 {
+			tmpls = append(tmpls, queryTempl{
+				queryType: "grouping_sets",
+				rules:     []string{"grouping-sets"},
+				gen: func(rng *rand.Rand) string {
+					c1 := cols[rng.Intn(len(cols))]
+					c2 := cols[rng.Intn(len(cols))]
+					if c1.Name == c2.Name && len(cols) > 1 {
+						c2 = cols[(rng.Intn(len(cols))+1)%len(cols)]
+					}
+					rollupOrCube := "ROLLUP"
+					if rng.Intn(2) == 0 {
+						rollupOrCube = "CUBE"
+					}
+					return fmt.Sprintf("SELECT %s, %s, COUNT(*) FROM %s GROUP BY %s(%s, %s)",
+						c1.Name, c2.Name, t.Name, rollupOrCube, c1.Name, c2.Name)
+				},
+			})
+		}
+
+		// 18l. Expensive function (regexp, string_agg)
+		if len(textCols) > 0 {
+			tmpls = append(tmpls, queryTempl{
+				queryType: "expensive_func",
+				rules:     []string{"expensive-function"},
+				gen: func(rng *rand.Rand) string {
+					col := textCols[rng.Intn(len(textCols))]
+					patterns := []string{
+						fmt.Sprintf("SELECT * FROM %s WHERE %s ~ '^[A-Z].*%d'", t.Name, col.Name, rng.Intn(100)),
+						fmt.Sprintf("SELECT string_agg(%s, ', ') FROM %s GROUP BY id %% 10", col.Name, t.Name),
+						fmt.Sprintf("SELECT regexp_replace(%s, '[0-9]+', 'X', 'g') FROM %s LIMIT 100", col.Name, t.Name),
+					}
+					return patterns[rng.Intn(len(patterns))]
+				},
+			})
+		}
+
+		// 18m. Volatile function in predicate
+		tmpls = append(tmpls, queryTempl{
+			queryType: "volatile_func",
+			rules:     []string{"volatile-function"},
+			gen: func(rng *rand.Rand) string {
+				patterns := []string{
+					fmt.Sprintf("SELECT * FROM %s WHERE random() > 0.5", t.Name),
+					fmt.Sprintf("SELECT * FROM %s WHERE created_at > now() - interval '1 day'", t.Name),
+				}
+				return patterns[rng.Intn(len(patterns))]
+			},
+		})
+	}
+
+	// 18n. Recursive CTE
+	if len(tables) > 0 {
+		tmpls = append(tmpls, queryTempl{
+			queryType: "recursive_cte",
+			rules:     []string{"recursive-cte"},
+			gen: func(rng *rand.Rand) string {
+				t := tables[rng.Intn(len(tables))]
+				return fmt.Sprintf(
+					"WITH RECURSIVE tree AS (SELECT id, 1 AS depth FROM %s WHERE id <= 10 UNION ALL SELECT t.id, tree.depth + 1 FROM %s t JOIN tree ON t.id = tree.id + 1 WHERE tree.depth < 5) SELECT * FROM tree",
+					t.Name, t.Name)
+			},
+		})
+	}
+
+	// 18o. LATERAL join
+	if len(joins) > 0 {
+		tmpls = append(tmpls, queryTempl{
+			queryType: "lateral_join",
+			rules:     []string{"lateral-join"},
+			gen: func(rng *rand.Rand) string {
+				j := joins[rng.Intn(len(joins))]
+				return fmt.Sprintf(
+					"SELECT * FROM %s p, LATERAL (SELECT * FROM %s c WHERE c.%s = p.id ORDER BY c.id LIMIT 3) sub",
+					j.right, j.left, j.leftCol)
+			},
+		})
+	}
+
+	// 18p. Multi-join (3+ joins for join-count-squared)
+	if len(joins) >= 3 {
+		tmpls = append(tmpls, queryTempl{
+			queryType: "multi_join",
+			rules:     nil, // triggers join + join-count-squared via count
+			gen: func(rng *rand.Rand) string {
+				// Pick 3-4 random join pairs and chain them
+				n := 3 + rng.Intn(min(3, len(joins)-2))
+				if n > len(joins) {
+					n = len(joins)
+				}
+				sql := fmt.Sprintf("SELECT * FROM %s", joins[0].right)
+				for i := 0; i < n; i++ {
+					j := joins[i%len(joins)]
+					sql += fmt.Sprintf(" JOIN %s ON %s.%s = %s.id",
+						j.left, j.left, j.leftCol, j.right)
+				}
+				sql += " LIMIT 100"
+				return sql
+			},
+		})
+	}
+
+	// 18q. UNION without ALL (union-distinct)
+	if len(tables) >= 2 {
+		tmpls = append(tmpls, queryTempl{
+			queryType: "union_distinct",
+			rules:     []string{"union-distinct"},
+			gen: func(rng *rand.Rand) string {
+				t1 := tables[rng.Intn(len(tables))]
+				cols1 := nonSerialCols(t1)
+				if len(cols1) == 0 {
+					return fmt.Sprintf("SELECT 1 FROM %s UNION SELECT 1 FROM %s", t1.Name, t1.Name)
+				}
+				col := cols1[0]
+				return fmt.Sprintf("SELECT %s FROM %s UNION SELECT %s FROM %s",
+					col.Name, t1.Name, col.Name, t1.Name)
+			},
+		})
+	}
+
+	// 18r. DDL statement
+	tmpls = append(tmpls, queryTempl{
+		queryType: "ddl_create",
+		rules:     []string{"ddl-statement"},
+		gen: func(rng *rand.Rand) string {
+			tmpName := fmt.Sprintf("tmp_cal_%d", rng.Intn(100000))
+			return fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id serial primary key, val text)", tmpName)
+		},
+	})
+
+	// 18s. CASCADE DROP
+	tmpls = append(tmpls, queryTempl{
+		queryType: "cascade_drop",
+		rules:     []string{"cascade-drop", "ddl-statement"},
+		gen: func(rng *rand.Rand) string {
+			tmpName := fmt.Sprintf("tmp_cal_%d", rng.Intn(100000))
+			return fmt.Sprintf("DROP TABLE IF EXISTS %s CASCADE", tmpName)
+		},
+	})
+
+	// 18t. JSONB operations (serialize/deserialize patterns)
+	for _, table := range tables {
+		t := table
+		var jsonbCols []ColumnDef
+		for _, c := range t.Columns {
+			if c.Type == "JSONB" {
+				jsonbCols = append(jsonbCols, c)
+			}
+		}
+		if len(jsonbCols) > 0 {
+			// JSON field access in WHERE (containment query)
+			tmpls = append(tmpls, queryTempl{
+				queryType: "jsonb_containment",
+				rules:     []string{"expensive-function"},
+				gen: func(rng *rand.Rand) string {
+					col := jsonbCols[rng.Intn(len(jsonbCols))]
+					return fmt.Sprintf("SELECT * FROM %s WHERE %s @> '{\"key\": %d}'",
+						t.Name, col.Name, rng.Intn(1000))
+				},
+			})
+
+			// JSON field extraction in SELECT (deserialization)
+			tmpls = append(tmpls, queryTempl{
+				queryType: "jsonb_extract",
+				rules:     []string{"expensive-function"},
+				gen: func(rng *rand.Rand) string {
+					col := jsonbCols[rng.Intn(len(jsonbCols))]
+					return fmt.Sprintf("SELECT id, %s->>'key' AS key_val, %s->'value' AS val_obj FROM %s WHERE %s IS NOT NULL LIMIT 100",
+						col.Name, col.Name, t.Name, col.Name)
+				},
+			})
+
+			// JSON path query (PG12+)
+			tmpls = append(tmpls, queryTempl{
+				queryType: "jsonb_path",
+				rules:     []string{"expensive-function"},
+				gen: func(rng *rand.Rand) string {
+					col := jsonbCols[rng.Intn(len(jsonbCols))]
+					return fmt.Sprintf("SELECT * FROM %s WHERE jsonb_path_exists(%s, '$.key ? (@ > %d)')",
+						t.Name, col.Name, rng.Intn(100))
+				},
+			})
+
+			// JSON aggregation (building JSON from rows)
+			tmpls = append(tmpls, queryTempl{
+				queryType: "jsonb_agg",
+				rules:     []string{"expensive-function"},
+				gen: func(rng *rand.Rand) string {
+					cols := nonSerialCols(t)
+					if len(cols) < 2 {
+						return fmt.Sprintf("SELECT jsonb_agg(to_jsonb(id)) FROM %s", t.Name)
+					}
+					c := cols[rng.Intn(len(cols))]
+					return fmt.Sprintf("SELECT jsonb_agg(jsonb_build_object('id', id, '%s', %s)) FROM %s LIMIT 100",
+						c.Name, c.Name, t.Name)
+				},
+			})
+		}
+	}
+
 	// 18. Nested boolean
 	if len(tables) > 0 {
 		tmpls = append(tmpls, queryTempl{

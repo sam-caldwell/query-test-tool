@@ -6,21 +6,20 @@ import (
 )
 
 func TestDataExpression(t *testing.T) {
-	domain := Archetypes()[0] // ecommerce
+	domain := Archetypes()[0]
 
 	tests := []struct {
 		col      ColumnDef
 		contains string
 	}{
-		{ColumnDef{Name: "email", Type: "VARCHAR(255)"}, "email_"},  // unique column uses deterministic
 		{ColumnDef{Name: "name", Type: "VARCHAR(100)"}, "name_"},
-		{ColumnDef{Name: "status", Type: "VARCHAR(20)"}, "active"},  // skewed distribution
-		{ColumnDef{Name: "price", Type: "NUMERIC(10,2)"}, "power"},  // skewed numeric
+		{ColumnDef{Name: "status", Type: "VARCHAR(20)"}, "active"},   // skewed distribution
+		{ColumnDef{Name: "amount", Type: "NUMERIC(10,2)"}, "power"},  // skewed numeric
 		{ColumnDef{Name: "is_active", Type: "BOOLEAN"}, "random"},
-		{ColumnDef{Name: "created_at", Type: "TIMESTAMPTZ"}, "730"}, // 2-year range
-		{ColumnDef{Name: "hire_date", Type: "DATE"}, "CURRENT_DATE"},
-		{ColumnDef{Name: "id", Type: "INT"}, "random"},
-		{ColumnDef{Name: "properties", Type: "JSONB"}, "jsonb_build_object"},
+		{ColumnDef{Name: "created_at", Type: "TIMESTAMPTZ"}, "730"},  // 2-year range
+		{ColumnDef{Name: "payment_date", Type: "DATE"}, "CURRENT_DATE"},
+		{ColumnDef{Name: "quantity", Type: "INT"}, "random"},
+		{ColumnDef{Name: "clinical_data", Type: "JSONB"}, "jsonb_build_object"},
 	}
 
 	for _, tt := range tests {
@@ -67,24 +66,33 @@ func TestTextExpression(t *testing.T) {
 }
 
 func TestIsChildTable(t *testing.T) {
-	domain := Archetypes()[0] // ecommerce
+	domain := Archetypes()[0] // cash_accounting
 
-	// orders is a child (has FK to users)
-	ordersTable := domain.Tables[3]
-	if ordersTable.Name != "orders" {
-		t.Fatalf("expected orders table, got %s", ordersTable.Name)
-	}
-	if !isChildTable(ordersTable, domain) {
-		t.Error("orders should be a child table")
+	// Find a table that has FKs (child) and one that doesn't (root)
+	var childTable, rootTable TableDef
+	for _, tbl := range domain.Tables {
+		if isChildTable(tbl, domain) {
+			childTable = tbl
+		} else {
+			rootTable = tbl
+		}
+		if childTable.Name != "" && rootTable.Name != "" {
+			break
+		}
 	}
 
-	// users is not a child (no FK from it to others, only to it)
-	usersTable := domain.Tables[0]
-	if usersTable.Name != "users" {
-		t.Fatalf("expected users table, got %s", usersTable.Name)
+	if childTable.Name == "" {
+		t.Fatal("no child table found")
 	}
-	if isChildTable(usersTable, domain) {
-		t.Error("users should not be a child table")
+	if rootTable.Name == "" {
+		t.Fatal("no root table found")
+	}
+
+	if !isChildTable(childTable, domain) {
+		t.Errorf("%s should be a child table", childTable.Name)
+	}
+	if isChildTable(rootTable, domain) {
+		t.Errorf("%s should not be a child table", rootTable.Name)
 	}
 }
 
@@ -119,15 +127,16 @@ func TestGenerateInsertSQL(t *testing.T) {
 	cfg.RowsPerTable = 100
 	dg := &DataGenerator{db: nil, cfg: cfg}
 
-	sql := dg.generateInsertSQL("test_schema", domain.Tables[0], domain)
-	if !strings.Contains(sql, "INSERT INTO test_schema.users") {
-		t.Error("expected INSERT INTO statement")
+	firstTable := domain.Tables[0]
+	sql := dg.generateInsertSQL("test_schema", firstTable, domain)
+	if !strings.Contains(sql, "INSERT INTO test_schema."+firstTable.Name) {
+		t.Errorf("expected INSERT INTO test_schema.%s, got: %s", firstTable.Name, sql[:min(80, len(sql))])
 	}
-	if !strings.Contains(sql, "generate_series(1, 100)") {
-		t.Errorf("expected generate_series with 100 rows, got: %s", sql)
+	if !strings.Contains(sql, "generate_series") {
+		t.Errorf("expected generate_series, got: %s", sql)
 	}
 	// Should not include id column (serial)
-	if strings.Contains(sql, "(id,") || strings.HasPrefix(sql, "INSERT INTO test_schema.users (id") {
+	if strings.Contains(sql, "(id,") {
 		t.Error("should not include serial id column in INSERT")
 	}
 }
@@ -138,11 +147,18 @@ func TestGenerateInsertSQL_ChildTable(t *testing.T) {
 	cfg.RowsPerTable = 100
 	dg := &DataGenerator{db: nil, cfg: cfg}
 
-	// order_items is a child table — should have more rows
-	sql := dg.generateInsertSQL("test_schema", domain.Tables[4], domain)
-	if !strings.Contains(sql, "generate_series(1, 300)") {
-		t.Errorf("child table should have 3x rows, got: %s", sql)
+	// Find a child table and verify it gets more rows than baseRows
+	for _, tbl := range domain.Tables {
+		if isChildTable(tbl, domain) && !hasCompositeUnique(tbl, domain) {
+			sql := dg.generateInsertSQL("test_schema", tbl, domain)
+			// Child tables get multiplier > 1, so rows > 100
+			if strings.Contains(sql, "generate_series(1, 100)") {
+				t.Errorf("child table %s should have more than base rows, got: %s", tbl.Name, sql[:min(100, len(sql))])
+			}
+			return
+		}
 	}
+	t.Skip("no suitable child table found")
 }
 
 func TestParseArray(t *testing.T) {
