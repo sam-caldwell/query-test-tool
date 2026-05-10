@@ -306,7 +306,8 @@ func (db *DB) SchemaHasResults(ctx context.Context, schemaName string) (bool, er
 }
 
 // DropOrphanSchemas drops any data schemas (cal_*) that still exist in the database.
-// These are leftovers from interrupted batch runs.
+// Terminates autovacuum workers first to prevent deadlocks during DROP.
+// Retries up to 3 times per schema and verifies all orphans are gone before returning.
 func (db *DB) DropOrphanSchemas(ctx context.Context) (int, error) {
 	rows, err := db.conn.QueryContext(ctx,
 		`SELECT schema_name FROM information_schema.schemata
@@ -325,12 +326,44 @@ func (db *DB) DropOrphanSchemas(ctx context.Context) (int, error) {
 		orphans = append(orphans, name)
 	}
 
+	if len(orphans) == 0 {
+		return 0, nil
+	}
+
+	dropped := 0
 	for _, name := range orphans {
-		if _, err := db.conn.ExecContext(ctx, fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", name)); err != nil {
-			log.Printf("Warning: failed to drop orphan schema %s: %v", name, err)
+		var success bool
+		for attempt := 0; attempt < 3; attempt++ {
+			// Kill any autovacuum workers touching this schema before each attempt
+			db.conn.ExecContext(ctx, fmt.Sprintf(
+				`SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+				 WHERE query LIKE 'autovacuum%%' AND query LIKE '%%%s%%' AND pid != pg_backend_pid()`, name))
+
+			_, err := db.conn.ExecContext(ctx, fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", name))
+			if err == nil {
+				success = true
+				break
+			}
+			// Brief pause before retry to let locks clear
+			db.conn.ExecContext(ctx, "SELECT pg_sleep(0.5)")
+		}
+		if success {
+			dropped++
+		} else {
+			log.Printf("Warning: failed to drop orphan schema %s after 3 attempts", name)
 		}
 	}
-	return len(orphans), nil
+
+	// Verify: confirm no orphans remain
+	var remaining int
+	db.conn.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM information_schema.schemata
+		 WHERE schema_name LIKE 'cal\_%' AND schema_name != 'calibration'`).Scan(&remaining)
+	if remaining > 0 {
+		log.Printf("Warning: %d orphan schemas still remain after cleanup", remaining)
+	}
+
+	return dropped, nil
 }
 
 // CreateResultPartitions pre-creates partitions for all batches plus a legacy partition (batch 0).

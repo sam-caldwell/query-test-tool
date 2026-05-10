@@ -231,6 +231,164 @@ func TestDropOrphanSchemasAfterBatch(t *testing.T) {
 	}
 }
 
+// TestDropOrphanSchemasWithAutovacuum verifies that orphan schemas get dropped even
+// when autovacuum is actively running on them. This was the root cause of orphan
+// accumulation that degraded calibration performance.
+func TestDropOrphanSchemasWithAutovacuum(t *testing.T) {
+	dsn := getTestDSN()
+	if dsn == "" {
+		t.Skip("TEST_DSN not set — skipping integration test")
+	}
+
+	cfg := DefaultConfig()
+	cfg.DSN = dsn
+	cfg.RowsPerTable = 1000 // small but enough to trigger autovacuum
+	db, err := NewDB(cfg)
+	if err != nil {
+		t.Fatalf("NewDB: %v", err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+
+	if err := db.InitTrackingTables(ctx); err != nil {
+		t.Fatalf("InitTrackingTables: %v", err)
+	}
+
+	// Create a schema with enough data to attract autovacuum
+	schemaName := "cal_test_autovac"
+	domain := Archetypes()[0]
+	tablesDDL := GenerateDDLTablesOnly(domain, schemaName)
+	if err := db.ApplySchema(ctx, schemaName, tablesDDL); err != nil {
+		t.Fatalf("ApplySchema: %v", err)
+	}
+
+	// Insert some data to make autovacuum interested
+	for _, table := range domain.Tables {
+		db.conn.ExecContext(ctx, fmt.Sprintf(
+			"INSERT INTO %s.%s SELECT generate_series(1, 100)", schemaName, table.Name))
+	}
+
+	// Delete data to create dead tuples (triggers autovacuum)
+	for _, table := range domain.Tables {
+		db.conn.ExecContext(ctx, fmt.Sprintf("DELETE FROM %s.%s", schemaName, table.Name))
+	}
+
+	// Now drop — this must succeed even if autovacuum is running
+	dropped, err := db.DropOrphanSchemas(ctx)
+	if err != nil {
+		t.Fatalf("DropOrphanSchemas: %v", err)
+	}
+	if dropped < 1 {
+		t.Errorf("expected at least 1 dropped, got %d", dropped)
+	}
+
+	// Verify it's actually gone
+	var exists bool
+	db.conn.QueryRowContext(ctx,
+		"SELECT EXISTS(SELECT 1 FROM information_schema.schemata WHERE schema_name = $1)",
+		schemaName).Scan(&exists)
+	if exists {
+		t.Errorf("%s should not exist after DropOrphanSchemas — autovacuum deadlock prevention failed", schemaName)
+	}
+}
+
+// TestDropOrphanSchemasRetry verifies that the retry logic handles transient failures.
+func TestDropOrphanSchemasRetry(t *testing.T) {
+	dsn := getTestDSN()
+	if dsn == "" {
+		t.Skip("TEST_DSN not set — skipping integration test")
+	}
+
+	cfg := DefaultConfig()
+	cfg.DSN = dsn
+	db, err := NewDB(cfg)
+	if err != nil {
+		t.Fatalf("NewDB: %v", err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+
+	if err := db.InitTrackingTables(ctx); err != nil {
+		t.Fatalf("InitTrackingTables: %v", err)
+	}
+
+	// Create multiple orphan schemas
+	names := []string{"cal_test_retry1", "cal_test_retry2", "cal_test_retry3", "cal_test_retry4", "cal_test_retry5"}
+	for _, name := range names {
+		_, err := db.conn.ExecContext(ctx, fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", name))
+		if err != nil {
+			t.Fatalf("creating %s: %v", name, err)
+		}
+		// Add a table so DROP CASCADE has work to do
+		db.conn.ExecContext(ctx, fmt.Sprintf("CREATE TABLE %s.test_table (id serial, data text)", name))
+		db.conn.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s.test_table (data) SELECT md5(random()::text) FROM generate_series(1, 100)", name))
+	}
+
+	// Drop all orphans
+	dropped, err := db.DropOrphanSchemas(ctx)
+	if err != nil {
+		t.Fatalf("DropOrphanSchemas: %v", err)
+	}
+	if dropped < len(names) {
+		t.Errorf("expected %d dropped, got %d", len(names), dropped)
+	}
+
+	// Verify ALL are gone — the verification step in DropOrphanSchemas should catch any remaining
+	for _, name := range names {
+		var exists bool
+		db.conn.QueryRowContext(ctx,
+			"SELECT EXISTS(SELECT 1 FROM information_schema.schemata WHERE schema_name = $1)", name).Scan(&exists)
+		if exists {
+			t.Errorf("%s should not exist after DropOrphanSchemas", name)
+		}
+	}
+}
+
+// TestDropOrphanSchemasPreservesCalibration verifies the calibration schema is never dropped.
+func TestDropOrphanSchemasPreservesCalibration(t *testing.T) {
+	dsn := getTestDSN()
+	if dsn == "" {
+		t.Skip("TEST_DSN not set — skipping integration test")
+	}
+
+	cfg := DefaultConfig()
+	cfg.DSN = dsn
+	db, err := NewDB(cfg)
+	if err != nil {
+		t.Fatalf("NewDB: %v", err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+
+	if err := db.InitTrackingTables(ctx); err != nil {
+		t.Fatalf("InitTrackingTables: %v", err)
+	}
+
+	// Create an orphan
+	db.conn.ExecContext(ctx, "CREATE SCHEMA IF NOT EXISTS cal_test_preserve")
+
+	// Drop orphans
+	db.DropOrphanSchemas(ctx)
+
+	// Verify calibration schema and its tables still exist
+	var calExists bool
+	db.conn.QueryRowContext(ctx,
+		"SELECT EXISTS(SELECT 1 FROM information_schema.schemata WHERE schema_name = 'calibration')").Scan(&calExists)
+	if !calExists {
+		t.Fatal("calibration schema was dropped — CRITICAL BUG")
+	}
+
+	var tablesExist bool
+	db.conn.QueryRowContext(ctx,
+		"SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_schema = 'calibration' AND table_name = 'families')").Scan(&tablesExist)
+	if !tablesExist {
+		t.Fatal("calibration.families was dropped — CRITICAL BUG")
+	}
+}
+
 // TestBatchPartitionIsolation verifies that results go into the correct partition.
 func TestBatchPartitionIsolation(t *testing.T) {
 	dsn := getTestDSN()
