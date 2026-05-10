@@ -177,9 +177,10 @@ func (db *DB) InitTrackingTables(ctx context.Context) error {
 		);
 
 		CREATE TABLE IF NOT EXISTS calibration.results (
-			id SERIAL PRIMARY KEY,
-			query_id INT NOT NULL REFERENCES calibration.queries(id),
-			schema_instance_id INT NOT NULL REFERENCES calibration.schema_instances(id),
+			id SERIAL,
+			batch_id INT NOT NULL DEFAULT 0,
+			query_id INT NOT NULL,
+			schema_instance_id INT NOT NULL,
 			plan JSONB,
 			total_cost DOUBLE PRECISION,
 			startup_cost DOUBLE PRECISION,
@@ -193,11 +194,10 @@ func (db *DB) InitTrackingTables(ctx context.Context) error {
 			score_memory_compute INT,
 			score_cognitive INT,
 			findings TEXT[] DEFAULT '{}',
-			created_at TIMESTAMPTZ DEFAULT now()
-		);
+			created_at TIMESTAMPTZ DEFAULT now(),
+			PRIMARY KEY (id, batch_id)
+		) PARTITION BY LIST (batch_id);
 
-		CREATE INDEX IF NOT EXISTS idx_results_query_id ON calibration.results(query_id);
-		CREATE INDEX IF NOT EXISTS idx_results_schema_id ON calibration.results(schema_instance_id);
 		CREATE INDEX IF NOT EXISTS idx_schema_instances_family ON calibration.schema_instances(family_id);
 		CREATE INDEX IF NOT EXISTS idx_queries_family ON calibration.queries(family_id);
 	`
@@ -243,6 +243,12 @@ func (db *DB) ApplySchema(ctx context.Context, schemaName, ddl string) error {
 		return fmt.Errorf("applying schema %s: %w", schemaName, err)
 	}
 	return nil
+}
+
+// ApplyIndexesAndFKs executes DDL for indexes and foreign keys on an existing schema.
+func (db *DB) ApplyIndexesAndFKs(ctx context.Context, ddl string) error {
+	_, err := db.conn.ExecContext(ctx, ddl)
+	return err
 }
 
 // InsertQuery inserts a generated query and returns its ID.
@@ -325,6 +331,33 @@ func (db *DB) DropOrphanSchemas(ctx context.Context) (int, error) {
 		}
 	}
 	return len(orphans), nil
+}
+
+// CreateResultPartitions pre-creates partitions for all batches plus a legacy partition (batch 0).
+func (db *DB) CreateResultPartitions(ctx context.Context, totalBatches int) error {
+	for i := 0; i <= totalBatches; i++ {
+		partName := fmt.Sprintf("calibration.results_b%04d", i)
+		ddl := fmt.Sprintf(
+			`CREATE TABLE IF NOT EXISTS %s PARTITION OF calibration.results FOR VALUES IN (%d)`,
+			partName, i)
+		if _, err := db.conn.ExecContext(ctx, ddl); err != nil {
+			return fmt.Errorf("creating partition %s: %w", partName, err)
+		}
+	}
+	// Create indexes on each partition (done after creation for idempotency)
+	for i := 0; i <= totalBatches; i++ {
+		partName := fmt.Sprintf("calibration.results_b%04d", i)
+		idxQuery := fmt.Sprintf(`CREATE INDEX IF NOT EXISTS idx_results_b%04d_query ON %s(query_id)`, i, partName)
+		if _, err := db.conn.ExecContext(ctx, idxQuery); err != nil {
+			return fmt.Errorf("creating index on %s: %w", partName, err)
+		}
+		idxSchema := fmt.Sprintf(`CREATE INDEX IF NOT EXISTS idx_results_b%04d_schema ON %s(schema_instance_id)`, i, partName)
+		if _, err := db.conn.ExecContext(ctx, idxSchema); err != nil {
+			return fmt.Errorf("creating index on %s: %w", partName, err)
+		}
+	}
+	log.Printf("Created %d result partitions (b0000-b%04d)", totalBatches+1, totalBatches)
+	return nil
 }
 
 // GetExistingFamilies returns all families already registered in the DB.
@@ -422,15 +455,15 @@ func (db *DB) RunExplain(ctx context.Context, schemaName, querySQL string) (*Exp
 }
 
 // InsertResult stores an EXPLAIN result.
-func (db *DB) InsertResult(ctx context.Context, r *ScoredResult) error {
+func (db *DB) InsertResult(ctx context.Context, r *ScoredResult, batchID int) error {
 	findingsArr := "{" + strings.Join(r.Findings, ",") + "}"
 	_, err := db.conn.ExecContext(ctx,
 		`INSERT INTO calibration.results
-		 (query_id, schema_instance_id, plan, total_cost, startup_cost, actual_time_ms,
+		 (batch_id, query_id, schema_instance_id, plan, total_cost, startup_cost, actual_time_ms,
 		  rows_planned, rows_actual, shared_hit_blocks, shared_read_blocks,
 		  score_total, score_efficiency, score_memory_compute, score_cognitive, findings)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::text[])`,
-		r.QueryID, r.SchemaInstanceID, r.Plan, r.TotalCost, r.StartupCost, r.ActualTimeMs,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::text[])`,
+		batchID, r.QueryID, r.SchemaInstanceID, r.Plan, r.TotalCost, r.StartupCost, r.ActualTimeMs,
 		r.RowsPlanned, r.RowsActual, r.SharedHitBlocks, r.SharedReadBlocks,
 		r.ScoreTotal, r.ScoreEfficiency, r.ScoreMemory, r.ScoreCognitive, findingsArr,
 	)

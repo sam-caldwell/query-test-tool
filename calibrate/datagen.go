@@ -20,9 +20,11 @@ func NewDataGenerator(db *DB, cfg PipelineConfig) *DataGenerator {
 // PopulateSchema generates test data for all tables in a schema.
 // It uses generate_series and random() for efficient bulk insertion.
 func (dg *DataGenerator) PopulateSchema(ctx context.Context, schemaName string, domain Domain) error {
-	// Disable statement timeout for bulk inserts (may be set by prior RunExplain on pooled connections)
-	if _, err := dg.db.conn.ExecContext(ctx, "SET statement_timeout = 0"); err != nil {
-		return fmt.Errorf("disabling statement timeout: %w", err)
+	// Optimize session for bulk inserts:
+	// - Disable statement timeout (may be set by prior RunExplain on pooled connections)
+	// - Disable synchronous_commit (data is disposable — dropped after EXPLAIN)
+	if _, err := dg.db.conn.ExecContext(ctx, "SET statement_timeout = 0; SET synchronous_commit = off"); err != nil {
+		return fmt.Errorf("setting bulk insert options: %w", err)
 	}
 
 	// Insert data respecting FK ordering (parent tables first)

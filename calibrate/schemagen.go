@@ -130,6 +130,63 @@ func GenerateDDL(d Domain, schemaName string) string {
 	return b.String()
 }
 
+// GenerateDDLTablesOnly generates DDL with UNLOGGED tables and no indexes or
+// foreign keys. Used during batch-and-drop calibration for fast bulk inserts.
+func GenerateDDLTablesOnly(d Domain, schemaName string) string {
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("CREATE SCHEMA %s;\n\n", schemaName))
+	for _, table := range d.Tables {
+		b.WriteString(generateCreateUnloggedTable(schemaName, table))
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+// GenerateDDLIndexesAndFKs generates DDL for indexes and foreign keys only.
+// Applied after data population to avoid index maintenance during bulk inserts.
+func GenerateDDLIndexesAndFKs(d Domain, schemaName string) string {
+	var b strings.Builder
+	for _, idx := range d.Indexes {
+		b.WriteString(generateCreateIndex(schemaName, idx))
+		b.WriteString("\n")
+	}
+	for _, fk := range d.ForeignKeys {
+		b.WriteString(generateAlterAddFK(schemaName, fk))
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+func generateCreateUnloggedTable(schema string, t TableDef) string {
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("CREATE UNLOGGED TABLE %s.%s (\n", schema, t.Name))
+
+	for i, col := range t.Columns {
+		b.WriteString("  ")
+		if col.IsSerial {
+			if col.Type == "BIGSERIAL" {
+				b.WriteString(fmt.Sprintf("%s BIGSERIAL PRIMARY KEY", col.Name))
+			} else {
+				b.WriteString(fmt.Sprintf("%s SERIAL PRIMARY KEY", col.Name))
+			}
+		} else {
+			b.WriteString(fmt.Sprintf("%s %s", col.Name, col.Type))
+			if col.NotNull {
+				b.WriteString(" NOT NULL")
+			}
+			if col.Default != "" {
+				b.WriteString(fmt.Sprintf(" DEFAULT %s", col.Default))
+			}
+		}
+		if i < len(t.Columns)-1 {
+			b.WriteString(",")
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString(");\n")
+	return b.String()
+}
+
 func generateCreateTable(schema string, t TableDef) string {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("CREATE TABLE %s.%s (\n", schema, t.Name))

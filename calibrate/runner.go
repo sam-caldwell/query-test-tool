@@ -47,6 +47,7 @@ type Runner struct {
 	scores    *scoreCache
 	throttler *AdaptiveThrottler
 	failCount int64
+	batchID   int
 }
 
 // NewRunner creates a new query runner.
@@ -75,13 +76,26 @@ type RunJob struct {
 const maxDegradedPerQuery = 5
 
 // RunAll executes all queries against their family's schema instances.
-func (r *Runner) RunAll(ctx context.Context, families []SchemaFamily, progress func(done, total int64)) error {
+// If schemaFilter is non-nil, only schemas whose names are in the filter are used.
+func (r *Runner) RunAll(ctx context.Context, families []SchemaFamily, batchID int, schemaFilter map[string]bool, progress func(done, total int64)) error {
+	r.batchID = batchID
 	// Build work items
 	var jobs []RunJob
 	for _, fam := range families {
 		schemas, err := r.db.GetFamilySchemas(ctx, fam.ID)
 		if err != nil {
 			return fmt.Errorf("loading schemas for family %d: %w", fam.ID, err)
+		}
+
+		// Filter to only schemas in this batch
+		if schemaFilter != nil {
+			var filtered []SchemaInstance
+			for _, s := range schemas {
+				if schemaFilter[s.SchemaName] {
+					filtered = append(filtered, s)
+				}
+			}
+			schemas = filtered
 		}
 
 		// Separate optimal from degraded
@@ -211,7 +225,7 @@ func (r *Runner) executeJob(ctx context.Context, job RunJob) error {
 	scored.QueryID = job.Query.ID
 	scored.SchemaInstanceID = job.SchemaInstance.ID
 
-	return r.db.InsertResult(ctx, scored)
+	return r.db.InsertResult(ctx, scored, r.batchID)
 }
 
 // RunFamilyBatch executes EXPLAIN for all queries in a single family.

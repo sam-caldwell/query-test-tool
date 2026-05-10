@@ -314,7 +314,7 @@ func (p *Pipeline) Run(ctx context.Context) error {
 	throttler := NewAdaptiveThrottler(p.cfg.Workers)
 	defer throttler.Stop()
 	runner.SetThrottler(throttler)
-	if err := runner.RunAll(ctx, families, ProgressLogger); err != nil {
+	if err := runner.RunAll(ctx, families, 0, nil, ProgressLogger); err != nil {
 		return err
 	}
 
@@ -392,6 +392,12 @@ func (p *Pipeline) AllBatched(ctx context.Context) (*CalibratedWeights, error) {
 	batchSize := p.cfg.BatchSize
 	if batchSize <= 0 {
 		batchSize = 10
+	}
+
+	// Pre-create result partitions (one per batch + legacy partition 0)
+	totalBatches := (p.cfg.SchemaCount + batchSize - 1) / batchSize
+	if err := p.db.CreateResultPartitions(ctx, totalBatches); err != nil {
+		return nil, fmt.Errorf("creating result partitions: %w", err)
 	}
 
 	// Clean up orphan data schemas from prior interrupted runs
@@ -547,9 +553,9 @@ func (p *Pipeline) AllBatched(ctx context.Context) (*CalibratedWeights, error) {
 	defer throttler.Stop()
 	runner.SetThrottler(throttler)
 
-	totalBatches := (len(pendingSchemas) + batchSize - 1) / batchSize
+	pendingBatches := (len(pendingSchemas) + batchSize - 1) / batchSize
 	log.Printf("Batch-and-drop: %d pending schemas, batch size %d, %d batches",
-		len(pendingSchemas), batchSize, totalBatches)
+		len(pendingSchemas), batchSize, pendingBatches)
 
 	var totalProcessed int64
 	for batchStart := 0; batchStart < len(pendingSchemas); batchStart += batchSize {
@@ -569,7 +575,9 @@ func (p *Pipeline) AllBatched(ctx context.Context) (*CalibratedWeights, error) {
 
 		log.Printf("=== Batch %d/%d: %d schemas ===", batchNum, totalBatches, len(batchNames))
 
-		// 1. Create and populate schemas in this batch (concurrently)
+		// 1. Create UNLOGGED tables, populate data, then add indexes (concurrently)
+		// Split DDL: tables-only first (no indexes/FKs) for fast bulk inserts,
+		// then add indexes after data is loaded.
 		var createdNames []string
 		var schemaMu sync.Mutex
 		var batchWg sync.WaitGroup
@@ -582,13 +590,22 @@ func (p *Pipeline) AllBatched(ctx context.Context) (*CalibratedWeights, error) {
 			batchWg.Add(1)
 			go func(w schemaWork) {
 				defer batchWg.Done()
-				if err := p.db.ApplySchema(ctx, w.instance.SchemaName, w.instance.DDL); err != nil {
-					log.Printf("Warning: failed to apply schema %s: %v", w.instance.SchemaName, err)
+				// Phase 1: Create UNLOGGED tables (no indexes, no FKs)
+				tablesDDL := GenerateDDLTablesOnly(w.domain, w.instance.SchemaName)
+				if err := p.db.ApplySchema(ctx, w.instance.SchemaName, tablesDDL); err != nil {
+					log.Printf("Warning: failed to create tables for %s: %v", w.instance.SchemaName, err)
 					return
 				}
+				// Phase 2: Bulk insert data (no index maintenance overhead)
 				dg := NewDataGenerator(p.db, p.cfg)
 				if err := dg.PopulateSchema(ctx, w.instance.SchemaName, w.domain); err != nil {
 					log.Printf("Warning: failed to populate %s: %v", w.instance.SchemaName, err)
+					return
+				}
+				// Phase 3: Add indexes and FKs (builds indexes on existing data — faster than incremental)
+				indexDDL := GenerateDDLIndexesAndFKs(w.domain, w.instance.SchemaName)
+				if err := p.db.ApplyIndexesAndFKs(ctx, indexDDL); err != nil {
+					log.Printf("Warning: failed to create indexes for %s: %v", w.instance.SchemaName, err)
 					return
 				}
 				schemaMu.Lock()
@@ -618,7 +635,13 @@ func (p *Pipeline) AllBatched(ctx context.Context) (*CalibratedWeights, error) {
 			}
 		}
 
-		if err := runner.RunAll(ctx, batchFamilies, func(done, total int64) {
+		// Build filter of only this batch's schema names
+		batchFilter := make(map[string]bool)
+		for _, name := range createdNames {
+			batchFilter[name] = true
+		}
+
+		if err := runner.RunAll(ctx, batchFamilies, batchNum, batchFilter, func(done, total int64) {
 			if done%1000 == 0 {
 				log.Printf("  Batch %d EXPLAIN progress: %d/%d", batchNum, done, total)
 			}
@@ -626,13 +649,12 @@ func (p *Pipeline) AllBatched(ctx context.Context) (*CalibratedWeights, error) {
 			log.Printf("Warning: EXPLAIN batch %d had errors: %v", batchNum, err)
 		}
 
-		// 3. Drop schemas to free disk
-		for _, name := range createdNames {
-			if _, err := p.db.conn.ExecContext(ctx, fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", name)); err != nil {
-				log.Printf("Warning: failed to drop schema %s: %v", name, err)
-			}
+		// 3. Drop ALL data schemas to free disk (not just createdNames — catches orphans too)
+		dropped, err := p.db.DropOrphanSchemas(ctx)
+		if err != nil {
+			log.Printf("Warning: failed to drop schemas: %v", err)
 		}
-		log.Printf("  Dropped %d schemas to free disk", len(createdNames))
+		log.Printf("  Dropped %d schemas to free disk", dropped)
 
 		atomic.AddInt64(&totalProcessed, int64(len(createdNames)))
 	}
