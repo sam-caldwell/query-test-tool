@@ -23,11 +23,12 @@ export function Architecture() {
             '├── parser/           # pg_query wrapper\n' +
             '│   └── parser.go     # Parse(), Walk(), Children()\n' +
             '├── calibrate/        # Weight calibration system\n' +
-            '│   ├── archetype.go  # 7 domain archetypes\n' +
+            '│   ├── archetype.go  # 4 merged domain archetypes (84 tables)\n' +
             '│   ├── mutation.go   # Schema degradation generators\n' +
             '│   ├── schemagen.go  # Schema family generation\n' +
-            '│   ├── datagen.go    # Data population (NULLs, skew)\n' +
-            '│   ├── querygen.go   # 18 query templates\n' +
+            '│   ├── datagen.go    # Data population (NULLs, skew, tiered rows)\n' +
+            '│   ├── querygen.go   # 44 query templates (incl. JSONB)\n' +
+            '│   ├── pipeline.go   # Batch-and-drop orchestration\n' +
             '│   ├── runner.go     # EXPLAIN execution\n' +
             '│   └── regression.go # Paired comparison weights\n' +
             '├── cmd/sqlscore/     # CLI\n' +

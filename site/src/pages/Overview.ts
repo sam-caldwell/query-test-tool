@@ -24,9 +24,10 @@ export function Overview() {
         ),
         createElement('h2', null, 'Calibrated Weights'),
         createElement('p', null,
-            'Scoring weights are derived empirically by running queries against PostgreSQL with EXPLAIN ANALYZE. ',
-            'The calibration tool generates thousands of schema variants (with/without indexes, varying normalization) ',
-            'and compares the cost of antipattern queries against control queries to measure real performance impact.',
+            'Scoring weights are derived empirically by running 1M queries against PostgreSQL with EXPLAIN ANALYZE. ',
+            'The calibration tool uses 4 merged domains (84 tables, 912 columns) to generate schema variants ',
+            'with and without indexes, varying normalization, and up to 700K rows per table. ',
+            'Paired comparison isolates the cost impact of each antipattern from confounding factors like table size.',
         ),
         createElement('pre', null,
             '$ sqlscore -q "SELECT * FROM users WHERE LOWER(email) = \'test\' ORDER BY name"\n\n' +
