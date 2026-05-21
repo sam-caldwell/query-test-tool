@@ -4,38 +4,81 @@ import (
 	_ "embed"
 	"encoding/json"
 	"sync"
+
+	"github.com/sam-caldwell/query-test-tool/dialect"
 )
 
-//go:embed weights.json
-var weightsData []byte
+//go:embed weights/postgresql.json
+var PostgreSQLWeightsData []byte
 
-// WeightsFile is the JSON structure of the embedded weights file.
+//go:embed weights/mysql.json
+var MySQLWeightsData []byte
+
+// WeightsFile is the JSON structure of an embedded weights file.
 type WeightsFile struct {
 	Version     int            `json:"version"`
 	Description string         `json:"description"`
+	RSquared    float64        `json:"r_squared"`
+	SampleSize  int            `json:"sample_size"`
 	Weights     map[string]int `json:"weights"`
 }
 
 var (
-	loadedWeights *WeightsFile
-	weightsOnce   sync.Once
+	dialectWeights map[dialect.Dialect]*WeightsFile
+	weightsOnce    sync.Once
+	activeDialect  dialect.Dialect = dialect.PostgreSQL
 )
 
-// Weights returns the embedded scoring weights, loaded once from weights.json.
-// This file is embedded at build time — run cmd/calibrate to generate calibrated
-// weights, then rebuild cmd/sqlscore to pick them up.
-func Weights() *WeightsFile {
-	weightsOnce.Do(func() {
-		loadedWeights = &WeightsFile{}
-		if err := json.Unmarshal(weightsData, loadedWeights); err != nil {
-			// Fall back to hardcoded defaults if the embedded file is corrupt
-			loadedWeights = defaultWeights()
+func loadAllWeights() {
+	dialectWeights = make(map[dialect.Dialect]*WeightsFile)
+
+	pairs := []struct {
+		d    dialect.Dialect
+		data []byte
+	}{
+		{dialect.PostgreSQL, PostgreSQLWeightsData},
+		{dialect.MySQL, MySQLWeightsData},
+	}
+
+	for _, p := range pairs {
+		w := &WeightsFile{}
+		if err := json.Unmarshal(p.data, w); err != nil {
+			w = defaultWeights()
 		}
-	})
-	return loadedWeights
+		dialectWeights[p.d] = w
+	}
 }
 
-// Weight returns the penalty weight for a given rule name.
+// SetDialect sets the active dialect for weight lookups.
+// Must be called before any scoring (typically at CLI startup).
+func SetDialect(d dialect.Dialect) {
+	activeDialect = d
+}
+
+// ActiveDialect returns the currently active dialect.
+func ActiveDialect() dialect.Dialect {
+	return activeDialect
+}
+
+// Weights returns the embedded scoring weights for the active dialect.
+func Weights() *WeightsFile {
+	weightsOnce.Do(loadAllWeights)
+	if w, ok := dialectWeights[activeDialect]; ok {
+		return w
+	}
+	return defaultWeights()
+}
+
+// WeightsFor returns the weights for a specific dialect.
+func WeightsFor(d dialect.Dialect) *WeightsFile {
+	weightsOnce.Do(loadAllWeights)
+	if w, ok := dialectWeights[d]; ok {
+		return w
+	}
+	return defaultWeights()
+}
+
+// Weight returns the penalty weight for a given rule name using the active dialect.
 func Weight(rule string) int {
 	w := Weights()
 	if v, ok := w.Weights[rule]; ok {

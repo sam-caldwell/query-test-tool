@@ -2,12 +2,14 @@ package main
 
 import (
 	"encoding/json"
-	"flag"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 
+	"github.com/spf13/cobra"
+
+	"github.com/sam-caldwell/query-test-tool/dialect"
 	"github.com/sam-caldwell/query-test-tool/scorer"
 )
 
@@ -17,66 +19,93 @@ var (
 	commit  = "unknown"
 )
 
+func init() {
+	// Register dialects with their embedded weight data.
+	dialect.Register(&dialect.Registration{
+		Name:        dialect.PostgreSQL,
+		Description: "PostgreSQL (calibrated from EXPLAIN ANALYZE)",
+		WeightsData: scorer.PostgreSQLWeightsData,
+	})
+	dialect.Register(&dialect.Registration{
+		Name:        dialect.MySQL,
+		Description: "MySQL (default weights, uncalibrated)",
+		WeightsData: scorer.MySQLWeightsData,
+	})
+}
+
+var rootCmd = &cobra.Command{
+	Use:   "sqlscore [flags] [SQL]",
+	Short: "Score SQL queries for efficiency, memory/compute cost, and cognitive complexity",
+	Long: `sqlscore statically analyzes SQL queries and produces a score predicting
+how expensive the query will be. Supports multiple database dialects with
+calibrated weights derived from real EXPLAIN ANALYZE data.`,
+	Args:          cobra.ArbitraryArgs,
+	SilenceUsage:  true,
+	SilenceErrors: true,
+	RunE:          executeScore,
+}
+
+func init() {
+	rootCmd.Flags().StringP("db", "d", "postgresql", "Database dialect: postgresql, mysql")
+	rootCmd.Flags().StringP("query", "q", "", "SQL query to score")
+	rootCmd.Flags().StringP("file", "f", "", "File containing SQL query")
+	rootCmd.Flags().String("format", "text", "Output format: text or json")
+	rootCmd.Flags().BoolP("verbose", "v", false, "Show detailed findings")
+
+	rootCmd.SetVersionTemplate(versionTemplate())
+	rootCmd.Version = fmt.Sprintf("%s (%s)", version, commit)
+}
+
+func versionTemplate() string {
+	return `sqlscore {{.Version}}
+`
+}
+
 func main() {
-	var (
-		query       string
-		file        string
-		format      string
-		verbose     bool
-		showVersion bool
-	)
-
-	flag.StringVar(&query, "query", "", "SQL query to score (alternative to stdin)")
-	flag.StringVar(&query, "q", "", "SQL query to score (shorthand)")
-	flag.StringVar(&file, "file", "", "File containing SQL query")
-	flag.StringVar(&file, "f", "", "File containing SQL query (shorthand)")
-	flag.StringVar(&format, "format", "text", "Output format: text or json")
-	flag.BoolVar(&verbose, "verbose", false, "Show detailed findings")
-	flag.BoolVar(&verbose, "v", false, "Show detailed findings (shorthand)")
-	flag.BoolVar(&showVersion, "version", false, "Show version and weights info")
-
-	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: sqlscore [options] [SQL]\n\n")
-		fmt.Fprintf(os.Stderr, "Score SQL queries for efficiency, memory/compute cost, and cognitive complexity.\n\n")
-		fmt.Fprintf(os.Stderr, "Options:\n")
-		flag.PrintDefaults()
-		fmt.Fprintf(os.Stderr, "\nExamples:\n")
-		fmt.Fprintf(os.Stderr, "  sqlscore -q 'SELECT * FROM users'\n")
-		fmt.Fprintf(os.Stderr, "  echo 'SELECT * FROM users' | sqlscore\n")
-		fmt.Fprintf(os.Stderr, "  sqlscore -f query.sql -format json\n")
-	}
-
-	flag.Parse()
-
-	if showVersion {
-		w := scorer.Weights()
-		fmt.Printf("sqlscore %s (%s)\n", version, commit)
-		fmt.Printf("Weights: version %d — %s\n", w.Version, w.Description)
-		os.Exit(0)
-	}
-
-	sql, err := resolveInput(query, file, flag.Args())
-	if err != nil {
+	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
+	}
+}
+
+func executeScore(cmd *cobra.Command, args []string) error {
+	dbFlag, _ := cmd.Flags().GetString("db")
+	query, _ := cmd.Flags().GetString("query")
+	file, _ := cmd.Flags().GetString("file")
+	format, _ := cmd.Flags().GetString("format")
+	verbose, _ := cmd.Flags().GetBool("verbose")
+
+	// Validate dialect
+	d := dialect.Dialect(dbFlag)
+	if _, err := dialect.Get(d); err != nil {
+		return err
+	}
+
+	// Show weights info when --version is handled by cobra,
+	// but also support explicit version check in our flow
+	if cmd.Flags().Changed("version") {
+		w := scorer.WeightsFor(d)
+		fmt.Printf("sqlscore %s (%s)\n", version, commit)
+		fmt.Printf("Dialect: %s\n", d)
+		fmt.Printf("Weights: version %d — %s\n", w.Version, w.Description)
+		return nil
+	}
+
+	sql, err := resolveInput(query, file, args)
+	if err != nil {
+		return err
 	}
 
 	if strings.TrimSpace(sql) == "" {
-		fmt.Fprintf(os.Stderr, "Error: no SQL input provided\n")
-		flag.Usage()
-		os.Exit(1)
+		return fmt.Errorf("no SQL input provided\n\nUsage:\n  %s", cmd.UseLine())
 	}
 
-	report, err := scorer.ScoreQuery(sql)
+	report, err := scorer.ScoreQueryWithDialect(sql, d)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		return err
 	}
 
-	if err := output(report, format, verbose); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
+	return output(report, format, verbose)
 }
 
 func resolveInput(query, file string, args []string) (string, error) {
@@ -93,7 +122,6 @@ func resolveInput(query, file string, args []string) (string, error) {
 	if len(args) > 0 {
 		return strings.Join(args, " "), nil
 	}
-	// Try reading from stdin if it's not a terminal.
 	stat, _ := os.Stdin.Stat()
 	if (stat.Mode() & os.ModeCharDevice) == 0 {
 		data, err := io.ReadAll(os.Stdin)
@@ -111,18 +139,16 @@ func output(report *scorer.Report, format string, verbose bool) error {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		return enc.Encode(report)
-
 	case "text":
 		printTextReport(report, verbose)
 		return nil
-
 	default:
 		return fmt.Errorf("unknown format: %s", format)
 	}
 }
 
 func printTextReport(r *scorer.Report, verbose bool) {
-	fmt.Printf("SQL Query Score Report\n")
+	fmt.Printf("SQL Query Score Report (%s)\n", r.Dialect)
 	fmt.Printf("======================\n\n")
 
 	grade := scoreGrade(r.TotalScore)

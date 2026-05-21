@@ -7,6 +7,7 @@ import (
 
 	pg_query "github.com/pganalyze/pg_query_go/v6"
 
+	"github.com/sam-caldwell/query-test-tool/dialect"
 	"github.com/sam-caldwell/query-test-tool/parser"
 )
 
@@ -28,6 +29,7 @@ type DimensionScore struct {
 // Report is the complete scoring result for a query.
 type Report struct {
 	SQL              string          `json:"sql"`
+	Dialect          string          `json:"dialect"`
 	TotalScore       int             `json:"total_score"`
 	Efficiency       DimensionScore  `json:"efficiency"`
 	MemoryCompute    DimensionScore  `json:"memory_compute"`
@@ -39,8 +41,29 @@ type Scorer interface {
 	Score(tree *pg_query.ParseResult) DimensionScore
 }
 
-// ScoreQuery parses and scores a SQL query string, returning a full Report.
+// ScoreQuery parses and scores a SQL query using the active dialect.
 func ScoreQuery(sql string) (*Report, error) {
+	return ScoreQueryWithDialect(sql, ActiveDialect())
+}
+
+// ScoreQueryWithDialect parses and scores a SQL query using the specified dialect.
+func ScoreQueryWithDialect(sql string, d dialect.Dialect) (*Report, error) {
+	SetDialect(d)
+
+	switch d {
+	case dialect.PostgreSQL:
+		return scorePostgreSQL(sql)
+	case dialect.MySQL:
+		// MySQL uses the PostgreSQL parser for now (SQL is mostly compatible).
+		// A dedicated MySQL parser can be swapped in later without changing this interface.
+		return scorePostgreSQL(sql)
+	default:
+		return nil, fmt.Errorf("unsupported dialect: %s", d)
+	}
+}
+
+// scorePostgreSQL scores a SQL query using the PostgreSQL parser and scorers.
+func scorePostgreSQL(sql string) (*Report, error) {
 	tree, err := parser.Parse(sql)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse SQL: %w", err)
@@ -51,7 +74,6 @@ func ScoreQuery(sql string) (*Report, error) {
 	cog := (&CognitiveScorer{}).Score(tree)
 
 	// Apply superlinear join cost escalation.
-	// The quadratic portion beyond linear: count² - count.
 	applyJoinEscalation(&cog)
 
 	// NULL awareness: COALESCE in predicates → efficiency, NULL check chains → cognitive.
@@ -68,6 +90,7 @@ func ScoreQuery(sql string) (*Report, error) {
 
 	return &Report{
 		SQL:              sql,
+		Dialect:          string(ActiveDialect()),
 		TotalScore:       eff.Score + mem.Score + cog.Score,
 		Efficiency:       eff,
 		MemoryCompute:    mem,

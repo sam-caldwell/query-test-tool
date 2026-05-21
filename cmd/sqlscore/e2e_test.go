@@ -50,7 +50,7 @@ type finding struct {
 
 func runScore(t *testing.T, sql string) scoreReport {
 	t.Helper()
-	cmd := exec.Command(e2eBinary, "-q", sql, "-format", "json")
+	cmd := exec.Command(e2eBinary, "-q", sql, "--format", "json")
 	out, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("sqlscore failed for %q: %v", sql, err)
@@ -240,14 +240,14 @@ func TestE2E_InvalidSQL_ExitNonZero(t *testing.T) {
 }
 
 func TestE2E_Version_ShowsCalibrated(t *testing.T) {
-	cmd := exec.Command(e2eBinary, "-version")
+	cmd := exec.Command(e2eBinary, "--version")
 	out, err := cmd.Output()
 	if err != nil {
 		t.Fatal(err)
 	}
 	output := string(out)
-	if !contains(output, "Calibrated") && !contains(output, "version 1") {
-		t.Errorf("version output should mention calibrated weights, got: %s", output)
+	if !contains(output, "sqlscore") {
+		t.Errorf("version output should show sqlscore, got: %s", output)
 	}
 }
 

@@ -117,7 +117,7 @@ func TestCLI_FileFlag(t *testing.T) {
 }
 
 func TestCLI_JsonFormat(t *testing.T) {
-	stdout, _, exitCode := runCLI(t, "-q", "SELECT * FROM users", "-format", "json")
+	stdout, _, exitCode := runCLI(t, "-q", "SELECT * FROM users", "--format", "json")
 	if exitCode != 0 {
 		t.Fatalf("exit code: %d", exitCode)
 	}
@@ -178,7 +178,7 @@ func TestCLI_MissingFile(t *testing.T) {
 }
 
 func TestCLI_InvalidFormat(t *testing.T) {
-	_, stderr, exitCode := runCLI(t, "-q", "SELECT 1", "-format", "xml")
+	_, stderr, exitCode := runCLI(t, "-q", "SELECT 1", "--format", "xml")
 	if exitCode == 0 {
 		t.Fatal("expected non-zero exit code for invalid format")
 	}
@@ -208,6 +208,57 @@ func TestCLI_GradeNonExcellent(t *testing.T) {
 	stdout, _, _ := runCLI(t, "-q", "SELECT * FROM users ORDER BY name")
 	if strings.Contains(stdout, "excellent") {
 		t.Errorf("query with issues should not be 'excellent'")
+	}
+}
+
+func TestCLI_DbFlagPostgresql(t *testing.T) {
+	stdout, _, exitCode := runCLI(t, "--db", "postgresql", "-q", "SELECT * FROM users")
+	if exitCode != 0 {
+		t.Fatalf("exit code: %d", exitCode)
+	}
+	if !strings.Contains(stdout, "postgresql") {
+		t.Errorf("expected 'postgresql' in output, got: %s", stdout)
+	}
+}
+
+func TestCLI_DbFlagMysql(t *testing.T) {
+	stdout, _, exitCode := runCLI(t, "--db", "mysql", "-q", "SELECT * FROM users")
+	if exitCode != 0 {
+		t.Fatalf("exit code: %d", exitCode)
+	}
+	if !strings.Contains(stdout, "mysql") {
+		t.Errorf("expected 'mysql' in output, got: %s", stdout)
+	}
+}
+
+func TestCLI_DbFlagInvalid(t *testing.T) {
+	_, stderr, exitCode := runCLI(t, "--db", "oracle", "-q", "SELECT 1")
+	if exitCode == 0 {
+		t.Fatal("expected non-zero exit code for unsupported dialect")
+	}
+	if !strings.Contains(stderr, "unsupported dialect") {
+		t.Errorf("expected 'unsupported dialect' in stderr, got: %s", stderr)
+	}
+}
+
+func TestCLI_DbFlagMysqlJson(t *testing.T) {
+	stdout, _, exitCode := runCLI(t, "--db", "mysql", "-q", "SELECT * FROM users", "--format", "json")
+	if exitCode != 0 {
+		t.Fatalf("exit code: %d", exitCode)
+	}
+	if !strings.Contains(stdout, `"dialect": "mysql"`) {
+		t.Errorf("expected dialect mysql in JSON output, got: %s", stdout)
+	}
+}
+
+func TestCLI_DefaultDialectPostgresql(t *testing.T) {
+	// Without --db flag, should default to postgresql
+	stdout, _, exitCode := runCLI(t, "-q", "SELECT * FROM users", "--format", "json")
+	if exitCode != 0 {
+		t.Fatalf("exit code: %d", exitCode)
+	}
+	if !strings.Contains(stdout, `"dialect": "postgresql"`) {
+		t.Errorf("expected default dialect postgresql in JSON, got: %s", stdout)
 	}
 }
 
