@@ -523,28 +523,57 @@ func (p *Pipeline) AllBatched(ctx context.Context) (*CalibratedWeights, error) {
 		log.Printf("Query generation complete: %d queries", queriesGenerated)
 	}
 
-	// Phase 4: Find schemas that still need EXPLAIN results
-	pendingSchemas, err := p.db.GetSchemasWithoutResults(ctx)
+	// Phase 4: Find schemas that still need EXPLAIN results.
+	// Use DB-sourced family info (not regenerated plans) to ensure correct
+	// family assignments on reentrant runs with different random seeds.
+	pendingSchemasWithFamily, err := p.db.GetPendingSchemasWithFamily(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("checking pending schemas: %w", err)
 	}
 
 	totalSchemas := len(allWork)
-	completedSchemas := totalSchemas - len(pendingSchemas)
+	completedSchemas := totalSchemas - len(pendingSchemasWithFamily)
 	if completedSchemas > 0 {
 		log.Printf("Progress: %d/%d schemas already have results, %d remaining",
-			completedSchemas, totalSchemas, len(pendingSchemas))
+			completedSchemas, totalSchemas, len(pendingSchemasWithFamily))
 	}
 
-	if len(pendingSchemas) == 0 {
+	if len(pendingSchemasWithFamily) == 0 {
 		log.Printf("All schemas have results — skipping to weight calculation")
 		return p.Calculate(ctx)
 	}
 
-	// Build a lookup from schema name to work item for pending schemas
+	// Build pending schema names list and a lookup from name to DB-sourced family info
+	pendingSchemas := make([]string, len(pendingSchemasWithFamily))
+	pendingFamilyByName := make(map[string]PendingSchema)
+	for i, ps := range pendingSchemasWithFamily {
+		pendingSchemas[i] = ps.SchemaName
+		pendingFamilyByName[ps.SchemaName] = ps
+	}
+
+	// Build a lookup from domain name to archetype Domain.
+	// This is critical for reentrant runs: the schema generator uses a random seed
+	// so regenerated plans may assign schema names to different families. We must
+	// use the DB-sourced domain name to find the correct archetype for table creation.
+	archetypeByDomain := make(map[string]Domain)
+	for _, arch := range Archetypes() {
+		archetypeByDomain[arch.Name] = arch
+	}
+
+	// Build a lookup from schema name to work item for DDL/domain info.
+	// For reentrant runs, override the domain with the DB-sourced archetype.
 	workByName := make(map[string]schemaWork)
 	for _, w := range allWork {
 		workByName[w.instance.SchemaName] = w
+	}
+	// Override domain for pending schemas using DB-sourced family info
+	for name, ps := range pendingFamilyByName {
+		if w, ok := workByName[name]; ok {
+			if arch, ok := archetypeByDomain[ps.Domain]; ok {
+				w.domain = arch
+				workByName[name] = w
+			}
+		}
 	}
 
 	// Process pending schemas in batches
@@ -616,21 +645,21 @@ func (p *Pipeline) AllBatched(ctx context.Context) (*CalibratedWeights, error) {
 		batchWg.Wait()
 		log.Printf("  Created %d schemas", len(createdNames))
 
-		// 2. Run EXPLAIN ANALYZE for schemas in this batch
+		// 2. Run EXPLAIN ANALYZE for schemas in this batch.
+		// Use DB-sourced family info to ensure correct family assignment.
 		var batchFamilies []SchemaFamily
 		familySeen := make(map[int]bool)
 		for _, name := range batchNames {
-			w, ok := workByName[name]
+			ps, ok := pendingFamilyByName[name]
 			if !ok {
 				continue
 			}
-			fid := familyIDs[w.familyIdx]
-			if !familySeen[fid] {
-				familySeen[fid] = true
+			if !familySeen[ps.FamilyID] {
+				familySeen[ps.FamilyID] = true
 				batchFamilies = append(batchFamilies, SchemaFamily{
-					ID:     fid,
-					Domain: w.domain.Name,
-					Name:   familyPlans[w.familyIdx].FamilyName,
+					ID:     ps.FamilyID,
+					Domain: ps.Domain,
+					Name:   ps.FamilyName,
 				})
 			}
 		}

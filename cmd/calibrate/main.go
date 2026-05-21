@@ -9,12 +9,49 @@ import (
 	"io"
 	"log"
 	"os"
+	"strconv"
+	"syscall"
 	"strings"
 
 	"github.com/sam-caldwell/query-test-tool/calibrate"
 )
 
+// enforceSingleInstance uses a PID file lock to ensure only one calibrate
+// instance runs at a time. This prevents connection saturation and duplicate
+// data in the results table.
+func enforceSingleInstance() func() {
+	pidFile := os.TempDir() + "/calibrate.pid"
+
+	// Check for existing PID file
+	if data, err := os.ReadFile(pidFile); err == nil {
+		pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+		if err == nil && pid != os.Getpid() {
+			// Check if that process is still alive
+			if process, err := os.FindProcess(pid); err == nil {
+				if err := process.Signal(syscall.Signal(0)); err == nil {
+					log.Fatalf("FATAL: another calibrate instance is already running (PID %d). "+
+						"Only one instance may run at a time to prevent connection saturation and duplicate data. "+
+						"Kill the existing instance first, or remove %s if the process is gone.", pid, pidFile)
+				}
+			}
+		}
+		// Stale PID file — process is dead
+		os.Remove(pidFile)
+	}
+
+	// Write our PID
+	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
+		log.Fatalf("FATAL: cannot write PID file %s: %v", pidFile, err)
+	}
+
+	// Return cleanup function
+	return func() { os.Remove(pidFile) }
+}
+
 func main() {
+	cleanupPID := enforceSingleInstance()
+	defer cleanupPID()
+
 	var (
 		dsn          string
 		dbHost       string

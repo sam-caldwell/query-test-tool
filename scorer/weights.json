@@ -1,9 +1,9 @@
 {
   "version": 1,
-  "description": "Calibrated weights from 100779 samples (R²=0.9389)",
-  "r_squared": 0.9389207490874315,
-  "sample_size": 100779,
-  "generated_at": "2026-05-20T12:52:29Z",
+  "description": "Calibrated weights from 138664 samples (R²=0.9612)",
+  "r_squared": 0.9611882347229443,
+  "sample_size": 138664,
+  "generated_at": "2026-05-21T01:14:18Z",
   "weights": {
     "boolean-nesting": 25,
     "cartesian-product": 1,

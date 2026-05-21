@@ -137,6 +137,23 @@ func (r *Runner) RunAll(ctx context.Context, families []SchemaFamily, batchID in
 	total := int64(len(jobs))
 	var done int64
 
+	if total == 0 {
+		log.Printf("  WARNING: 0 EXPLAIN jobs generated (families=%d, schemaFilter size=%d)", len(families), len(schemaFilter))
+		for _, fam := range families {
+			schemas, _ := r.db.GetFamilySchemas(ctx, fam.ID)
+			var filtered int
+			for _, s := range schemas {
+				if schemaFilter != nil && schemaFilter[s.SchemaName] {
+					filtered++
+				}
+			}
+			queries, _ := r.db.GetQueriesForFamily(ctx, fam.ID)
+			log.Printf("    Family %d (%s): %d total schemas, %d after filter, %d queries",
+				fam.ID, fam.Name, len(schemas), filtered, len(queries))
+		}
+		return nil
+	}
+
 	// Execute concurrently
 	jobCh := make(chan RunJob, r.cfg.Workers*2)
 	var wg sync.WaitGroup

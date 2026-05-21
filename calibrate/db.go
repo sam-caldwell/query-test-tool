@@ -422,10 +422,36 @@ func (db *DB) CountSchemaInstancesForFamily(ctx context.Context, familyID int) (
 	return count, err
 }
 
+// PendingSchema holds a schema name and its family info from the database.
+type PendingSchema struct {
+	SchemaName string
+	FamilyID   int
+	FamilyName string
+	Domain     string
+}
+
 // GetSchemasWithoutResults returns schema names that have no EXPLAIN results yet.
 func (db *DB) GetSchemasWithoutResults(ctx context.Context) ([]string, error) {
+	pending, err := db.GetPendingSchemasWithFamily(ctx)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, len(pending))
+	for i, p := range pending {
+		names[i] = p.SchemaName
+	}
+	return names, nil
+}
+
+// GetPendingSchemasWithFamily returns schemas without results, including their
+// actual family assignment from the database. This is critical for reentrant runs
+// where the schema generator may produce different family assignments than the
+// original run.
+func (db *DB) GetPendingSchemasWithFamily(ctx context.Context) ([]PendingSchema, error) {
 	rows, err := db.conn.QueryContext(ctx,
-		`SELECT si.schema_name FROM calibration.schema_instances si
+		`SELECT si.schema_name, f.id, f.name, f.domain
+		 FROM calibration.schema_instances si
+		 JOIN calibration.families f ON f.id = si.family_id
 		 WHERE NOT EXISTS (
 			 SELECT 1 FROM calibration.results r WHERE r.schema_instance_id = si.id
 		 )
@@ -435,15 +461,15 @@ func (db *DB) GetSchemasWithoutResults(ctx context.Context) ([]string, error) {
 	}
 	defer rows.Close()
 
-	var names []string
+	var pending []PendingSchema
 	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
+		var p PendingSchema
+		if err := rows.Scan(&p.SchemaName, &p.FamilyID, &p.FamilyName, &p.Domain); err != nil {
 			return nil, err
 		}
-		names = append(names, name)
+		pending = append(pending, p)
 	}
-	return names, nil
+	return pending, rows.Err()
 }
 
 // GetSchemaWorkByName retrieves a schema instance's details by name.
