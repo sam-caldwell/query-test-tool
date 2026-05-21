@@ -11,32 +11,13 @@ import (
 	"github.com/sam-caldwell/query-test-tool/parser"
 )
 
-// Finding represents a single issue detected in the query.
-type Finding struct {
-	Rule        string `json:"rule"`
-	Description string `json:"description"`
-	Penalty     int    `json:"penalty"`
-	Category    string `json:"category"`
-}
+// Type aliases from dialect package — keeps backward compatibility for all
+// existing code that references scorer.Finding, scorer.Report, etc.
+type Finding = dialect.Finding
+type DimensionScore = dialect.DimensionScore
+type Report = dialect.Report
 
-// DimensionScore holds the score for a single dimension.
-type DimensionScore struct {
-	Name     string    `json:"name"`
-	Score    int       `json:"score"`
-	Findings []Finding `json:"findings"`
-}
-
-// Report is the complete scoring result for a query.
-type Report struct {
-	SQL              string          `json:"sql"`
-	Dialect          string          `json:"dialect"`
-	TotalScore       int             `json:"total_score"`
-	Efficiency       DimensionScore  `json:"efficiency"`
-	MemoryCompute    DimensionScore  `json:"memory_compute"`
-	CognitiveComplex DimensionScore  `json:"cognitive_complexity"`
-}
-
-// Scorer scores a parsed SQL statement.
+// Scorer scores a parsed SQL statement (PostgreSQL-specific).
 type Scorer interface {
 	Score(tree *pg_query.ParseResult) DimensionScore
 }
@@ -46,20 +27,33 @@ func ScoreQuery(sql string) (*Report, error) {
 	return ScoreQueryWithDialect(sql, ActiveDialect())
 }
 
+// DialectScorer is a function that scores SQL for a specific dialect.
+// Register dialect-specific scorers via RegisterDialectScorer to avoid import cycles.
+type DialectScorer func(sql string) (*Report, error)
+
+var dialectScorers = map[dialect.Dialect]DialectScorer{}
+
+// RegisterDialectScorer registers a scoring function for a dialect.
+// This is called from cmd/sqlscore or other entry points that can import
+// dialect-specific packages without creating import cycles.
+func RegisterDialectScorer(d dialect.Dialect, fn DialectScorer) {
+	dialectScorers[d] = fn
+}
+
 // ScoreQueryWithDialect parses and scores a SQL query using the specified dialect.
 func ScoreQueryWithDialect(sql string, d dialect.Dialect) (*Report, error) {
 	SetDialect(d)
 
-	switch d {
-	case dialect.PostgreSQL:
-		return scorePostgreSQL(sql)
-	case dialect.MySQL:
-		// MySQL uses the PostgreSQL parser for now (SQL is mostly compatible).
-		// A dedicated MySQL parser can be swapped in later without changing this interface.
-		return scorePostgreSQL(sql)
-	default:
-		return nil, fmt.Errorf("unsupported dialect: %s", d)
+	if fn, ok := dialectScorers[d]; ok {
+		return fn(sql)
 	}
+
+	// Default: PostgreSQL scorer
+	if d == dialect.PostgreSQL {
+		return scorePostgreSQL(sql)
+	}
+
+	return nil, fmt.Errorf("no scorer registered for dialect: %s", d)
 }
 
 // scorePostgreSQL scores a SQL query using the PostgreSQL parser and scorers.

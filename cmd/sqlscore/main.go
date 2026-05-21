@@ -11,6 +11,7 @@ import (
 
 	"github.com/sam-caldwell/query-test-tool/dialect"
 	"github.com/sam-caldwell/query-test-tool/scorer"
+	mysqlscorer "github.com/sam-caldwell/query-test-tool/scorer/mysql"
 )
 
 // Set via -ldflags at build time.
@@ -20,6 +21,9 @@ var (
 )
 
 func init() {
+	// Register MySQL scorer (must be done from cmd/ to avoid import cycles).
+	scorer.RegisterDialectScorer(dialect.MySQL, mysqlscorer.ScoreQuery)
+
 	// Register dialects with their embedded weight data.
 	dialect.Register(&dialect.Registration{
 		Name:        dialect.PostgreSQL,

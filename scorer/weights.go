@@ -29,6 +29,11 @@ var (
 	activeDialect  dialect.Dialect = dialect.PostgreSQL
 )
 
+func init() {
+	// Wire up dialect.Weight() to use scorer.Weight() without import cycles.
+	dialect.WeightFunc = Weight
+}
+
 func loadAllWeights() {
 	dialectWeights = make(map[dialect.Dialect]*WeightsFile)
 

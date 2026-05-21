@@ -30,6 +30,44 @@ type Registration struct {
 	WeightsData []byte // raw JSON bytes (embedded at build time)
 }
 
+// Finding represents a single issue detected in a query.
+type Finding struct {
+	Rule        string `json:"rule"`
+	Description string `json:"description"`
+	Penalty     int    `json:"penalty"`
+	Category    string `json:"category"`
+}
+
+// DimensionScore holds the score for a single dimension.
+type DimensionScore struct {
+	Name     string    `json:"name"`
+	Score    int       `json:"score"`
+	Findings []Finding `json:"findings"`
+}
+
+// Report is the complete scoring result for a query.
+type Report struct {
+	SQL              string         `json:"sql"`
+	Dialect          string         `json:"dialect"`
+	TotalScore       int            `json:"total_score"`
+	Efficiency       DimensionScore `json:"efficiency"`
+	MemoryCompute    DimensionScore `json:"memory_compute"`
+	CognitiveComplex DimensionScore `json:"cognitive_complexity"`
+}
+
+// WeightFunc is a function that returns the penalty weight for a rule.
+// Set by the scorer package at init time to avoid import cycles.
+var WeightFunc func(rule string) int
+
+// Weight returns the penalty weight for a rule using the active dialect.
+// Delegates to the scorer package's Weight function.
+func Weight(rule string) int {
+	if WeightFunc != nil {
+		return WeightFunc(rule)
+	}
+	return 0
+}
+
 var registry = map[Dialect]*Registration{}
 
 // Register adds a dialect to the global registry.
