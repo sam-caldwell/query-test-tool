@@ -77,7 +77,7 @@ func TestRunAllSchemaFilter(t *testing.T) {
 	}
 
 	// Run with filter — only schemaIn
-	runner := NewRunner(db, cfg)
+	runner := NewRunner(db, cfg, "postgresql")
 	filter := map[string]bool{schemaIn: true}
 	families := []SchemaFamily{{ID: familyID, Domain: domain.Name, Name: "test_filter_family"}}
 

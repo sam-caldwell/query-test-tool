@@ -167,7 +167,19 @@ Examples:
 	// (graceful stop at batch boundary on first signal, force exit on second)
 	ctx := context.Background()
 
-	pipeline, err := calibrate.NewPipeline(cfg)
+	pgKit := &calibrate.DialectKit{
+		NewDB: func(c calibrate.PipelineConfig) (calibrate.DialectDB, error) {
+			return calibrate.NewDB(c)
+		},
+		DDL: &calibrate.PgDDLGenerator{},
+		NewDataPopulator: func(db calibrate.DialectDB, c calibrate.PipelineConfig) calibrate.DataPopulator {
+			return calibrate.NewDataGenerator(db, c)
+		},
+		MapTypes:      func(d calibrate.Domain) calibrate.Domain { return d }, // identity for PG
+		ScorerDialect: "postgresql",
+	}
+
+	pipeline, err := calibrate.NewPipeline(cfg, pgKit)
 	if err != nil {
 		log.Fatalf("Failed to initialize pipeline: %v", err)
 	}

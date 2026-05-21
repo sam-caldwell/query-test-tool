@@ -139,6 +139,11 @@ func restartPostgreSQL() error {
 	return fmt.Errorf("all restart methods failed — restart PostgreSQL manually")
 }
 
+// Conn returns the underlying *sql.DB connection.
+func (db *DB) Conn() *sql.DB {
+	return db.conn
+}
+
 // Close closes the database connection.
 func (db *DB) Close() error {
 	return db.conn.Close()

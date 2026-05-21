@@ -6,14 +6,15 @@ import (
 	"strings"
 )
 
-// DataGenerator populates schemas with test data.
+// DataGenerator populates schemas with PostgreSQL-specific test data.
+// It implements the DataPopulator interface for the PostgreSQL dialect.
 type DataGenerator struct {
-	db  *DB
+	db  DialectDB
 	cfg PipelineConfig
 }
 
-// NewDataGenerator creates a new data generator.
-func NewDataGenerator(db *DB, cfg PipelineConfig) *DataGenerator {
+// NewDataGenerator creates a new PostgreSQL data generator.
+func NewDataGenerator(db DialectDB, cfg PipelineConfig) *DataGenerator {
 	return &DataGenerator{db: db, cfg: cfg}
 }
 
@@ -23,7 +24,7 @@ func (dg *DataGenerator) PopulateSchema(ctx context.Context, schemaName string, 
 	// Optimize session for bulk inserts:
 	// - Disable statement timeout (may be set by prior RunExplain on pooled connections)
 	// - Disable synchronous_commit (data is disposable — dropped after EXPLAIN)
-	if _, err := dg.db.conn.ExecContext(ctx, "SET statement_timeout = 0; SET synchronous_commit = off"); err != nil {
+	if _, err := dg.db.Conn().ExecContext(ctx, "SET statement_timeout = 0; SET synchronous_commit = off"); err != nil {
 		return fmt.Errorf("setting bulk insert options: %w", err)
 	}
 
@@ -32,14 +33,14 @@ func (dg *DataGenerator) PopulateSchema(ctx context.Context, schemaName string, 
 
 	for _, table := range ordered {
 		sql := dg.generateInsertSQL(schemaName, table, domain)
-		if _, err := dg.db.conn.ExecContext(ctx, sql); err != nil {
+		if _, err := dg.db.Conn().ExecContext(ctx, sql); err != nil {
 			return fmt.Errorf("populating %s.%s: %w", schemaName, table.Name, err)
 		}
 	}
 
 	// ANALYZE to update statistics
 	for _, table := range domain.Tables {
-		if _, err := dg.db.conn.ExecContext(ctx, fmt.Sprintf("ANALYZE %s.%s", schemaName, table.Name)); err != nil {
+		if _, err := dg.db.Conn().ExecContext(ctx, fmt.Sprintf("ANALYZE %s.%s", schemaName, table.Name)); err != nil {
 			return fmt.Errorf("analyzing %s.%s: %w", schemaName, table.Name, err)
 		}
 	}

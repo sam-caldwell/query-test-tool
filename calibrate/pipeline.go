@@ -15,21 +15,29 @@ import (
 
 // Pipeline orchestrates the complete calibration workflow.
 type Pipeline struct {
-	db       *DB
+	db       DialectDB
+	kit      *DialectKit
 	cfg      PipelineConfig
 	stopOnce sync.Once
 	stopCh   chan struct{} // closed when graceful stop is requested
 }
 
-// NewPipeline creates a new calibration pipeline.
-func NewPipeline(cfg PipelineConfig) (*Pipeline, error) {
-	db, err := NewDB(cfg)
+// NewPipeline creates a new calibration pipeline using the provided dialect kit.
+func NewPipeline(cfg PipelineConfig, kit *DialectKit) (*Pipeline, error) {
+	db, err := kit.NewDB(cfg)
 	if err != nil {
 		return nil, err
 	}
-	p := &Pipeline{db: db, cfg: cfg, stopCh: make(chan struct{})}
+	p := &Pipeline{db: db, kit: kit, cfg: cfg, stopCh: make(chan struct{})}
 	p.installSignalHandler()
 	return p, nil
+}
+
+// NewPipelineWithDB creates a pipeline with a pre-existing DB connection (for testing).
+func NewPipelineWithDB(cfg PipelineConfig, kit *DialectKit, db DialectDB) *Pipeline {
+	p := &Pipeline{db: db, kit: kit, cfg: cfg, stopCh: make(chan struct{})}
+	p.installSignalHandler()
+	return p
 }
 
 // installSignalHandler listens for SIGINT/SIGTERM and requests a graceful stop
@@ -102,14 +110,14 @@ func (p *Pipeline) Generate(ctx context.Context) error {
 		plan.Optimal = SchemaInstance{
 			SchemaName: schemaName,
 			IsOptimal:  true,
-			DDL:        GenerateDDL(*importedDomain, schemaName),
+			DDL:        p.kit.DDL.GenerateDDL(*importedDomain, schemaName),
 		}
 
 		counter := 1
 		for _, mutationSet := range variants {
 			degraded := applyMutations(*importedDomain, mutationSet)
 			sn := fmt.Sprintf("cal_imp_%05d", counter)
-			ddl := GenerateDDL(degraded, sn)
+			ddl := p.kit.DDL.GenerateDDL(degraded, sn)
 
 			var mutNames []string
 			for _, m := range mutationSet {
@@ -160,7 +168,7 @@ func (p *Pipeline) Generate(ctx context.Context) error {
 					optErrCh <- fmt.Errorf("applying optimal schema: %w", err)
 					return
 				}
-				dg := NewDataGenerator(p.db, p.cfg)
+				dg := p.kit.NewDataPopulator(p.db, p.cfg)
 				if err := dg.PopulateSchema(ctx, pl.Optimal.SchemaName, pl.Domain); err != nil {
 					optErrCh <- fmt.Errorf("populating optimal schema %s: %w", pl.Optimal.SchemaName, err)
 					return
@@ -191,7 +199,7 @@ func (p *Pipeline) Generate(ctx context.Context) error {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			dg := NewDataGenerator(p.db, p.cfg)
+			dg := p.kit.NewDataPopulator(p.db, p.cfg)
 			for job := range jobCh {
 				if _, err := p.db.InsertSchemaInstance(ctx, job.familyID, job.variant.SchemaName, false, job.variant.Mutations, job.variant.DDL); err != nil {
 					log.Printf("Warning: failed to insert schema %s: %v", job.variant.SchemaName, err)
@@ -292,7 +300,7 @@ func (p *Pipeline) Run(ctx context.Context) error {
 	start := time.Now()
 
 	// Load families
-	rows, err := p.db.conn.QueryContext(ctx, "SELECT id, domain, name FROM calibration.families")
+	rows, err := p.db.Conn().QueryContext(ctx, "SELECT id, domain, name FROM calibration.families")
 	if err != nil {
 		return err
 	}
@@ -310,7 +318,7 @@ func (p *Pipeline) Run(ctx context.Context) error {
 		return err
 	}
 
-	runner := NewRunner(p.db, p.cfg)
+	runner := NewRunner(p.db, p.cfg, p.kit.ScorerDialect)
 	throttler := NewAdaptiveThrottler(p.cfg.Workers)
 	defer throttler.Stop()
 	runner.SetThrottler(throttler)
@@ -577,7 +585,7 @@ func (p *Pipeline) AllBatched(ctx context.Context) (*CalibratedWeights, error) {
 	}
 
 	// Process pending schemas in batches
-	runner := NewRunner(p.db, p.cfg)
+	runner := NewRunner(p.db, p.cfg, p.kit.ScorerDialect)
 	throttler := NewAdaptiveThrottler(p.cfg.Workers)
 	defer throttler.Stop()
 	runner.SetThrottler(throttler)
@@ -620,19 +628,19 @@ func (p *Pipeline) AllBatched(ctx context.Context) (*CalibratedWeights, error) {
 			go func(w schemaWork) {
 				defer batchWg.Done()
 				// Phase 1: Create UNLOGGED tables (no indexes, no FKs)
-				tablesDDL := GenerateDDLTablesOnly(w.domain, w.instance.SchemaName)
+				tablesDDL := p.kit.DDL.GenerateDDLTablesOnly(w.domain, w.instance.SchemaName)
 				if err := p.db.ApplySchema(ctx, w.instance.SchemaName, tablesDDL); err != nil {
 					log.Printf("Warning: failed to create tables for %s: %v", w.instance.SchemaName, err)
 					return
 				}
 				// Phase 2: Bulk insert data (no index maintenance overhead)
-				dg := NewDataGenerator(p.db, p.cfg)
+				dg := p.kit.NewDataPopulator(p.db, p.cfg)
 				if err := dg.PopulateSchema(ctx, w.instance.SchemaName, w.domain); err != nil {
 					log.Printf("Warning: failed to populate %s: %v", w.instance.SchemaName, err)
 					return
 				}
 				// Phase 3: Add indexes and FKs (builds indexes on existing data — faster than incremental)
-				indexDDL := GenerateDDLIndexesAndFKs(w.domain, w.instance.SchemaName)
+				indexDDL := p.kit.DDL.GenerateDDLIndexesAndFKs(w.domain, w.instance.SchemaName)
 				if err := p.db.ApplyIndexesAndFKs(ctx, indexDDL); err != nil {
 					log.Printf("Warning: failed to create indexes for %s: %v", w.instance.SchemaName, err)
 					return

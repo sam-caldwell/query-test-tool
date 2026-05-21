@@ -8,6 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/sam-caldwell/query-test-tool/dialect"
 	"github.com/sam-caldwell/query-test-tool/scorer"
 )
 
@@ -42,20 +43,22 @@ func hashSQL(sql string) uint64 {
 
 // Runner executes EXPLAIN ANALYZE on queries across schema instances.
 type Runner struct {
-	db        *DB
-	cfg       PipelineConfig
-	scores    *scoreCache
-	throttler *AdaptiveThrottler
-	failCount int64
-	batchID   int
+	db            DialectDB
+	cfg           PipelineConfig
+	scorerDialect string
+	scores        *scoreCache
+	throttler     *AdaptiveThrottler
+	failCount     int64
+	batchID       int
 }
 
 // NewRunner creates a new query runner.
-func NewRunner(db *DB, cfg PipelineConfig) *Runner {
+func NewRunner(db DialectDB, cfg PipelineConfig, scorerDialect string) *Runner {
 	return &Runner{
-		db:     db,
-		cfg:    cfg,
-		scores: newScoreCache(),
+		db:            db,
+		cfg:           cfg,
+		scorerDialect: scorerDialect,
+		scores:        newScoreCache(),
 	}
 }
 
@@ -213,7 +216,7 @@ func (r *Runner) executeJob(ctx context.Context, job RunJob) error {
 	report, ok := r.scores.get(sqlHash)
 	if !ok {
 		var scoreErr error
-		report, scoreErr = scorer.ScoreQuery(job.Query.SQL)
+		report, scoreErr = scorer.ScoreQueryWithDialect(job.Query.SQL, dialect.Dialect(r.scorerDialect))
 		if scoreErr != nil {
 			return fmt.Errorf("scoring query: %w", scoreErr)
 		}

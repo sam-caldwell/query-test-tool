@@ -103,6 +103,19 @@ func applyMutations(d Domain, mutations []Mutation) Domain {
 	return copy
 }
 
+// PgDDLGenerator implements DDLGenerator for PostgreSQL.
+type PgDDLGenerator struct{}
+
+func (g *PgDDLGenerator) GenerateDDL(d Domain, schemaName string) string {
+	return GenerateDDL(d, schemaName)
+}
+func (g *PgDDLGenerator) GenerateDDLTablesOnly(d Domain, schemaName string) string {
+	return GenerateDDLTablesOnly(d, schemaName)
+}
+func (g *PgDDLGenerator) GenerateDDLIndexesAndFKs(d Domain, schemaName string) string {
+	return GenerateDDLIndexesAndFKs(d, schemaName)
+}
+
 // GenerateDDL produces the full DDL for a domain within a schema.
 func GenerateDDL(d Domain, schemaName string) string {
 	var b strings.Builder
