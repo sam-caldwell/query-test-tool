@@ -33,15 +33,18 @@ lint: ## Run go vet and govulncheck
 
 # ─── Build ────────────────────────────────────────────────────────────────────
 
-build: $(BINDIR)/sqlscore $(BINDIR)/pg_calibrate ## Build binaries using existing weights
+build: $(BINDIR)/sqlscore $(BINDIR)/pg_calibrate $(BINDIR)/mysql_calibrate ## Build binaries using existing weights
 
 $(BINDIR)/sqlscore: $(shell find . -name '*.go' -not -path './calibrate/*') scorer/weights.json
 	go build $(LDFLAGS) -o $(BINDIR)/sqlscore ./cmd/sqlscore
 
-$(BINDIR)/pg_calibrate: $(shell find . -name '*.go') scorer/weights.json
+$(BINDIR)/pg_calibrate: $(shell find . -name '*.go') scorer/weights/postgresql.json
 	go build $(LDFLAGS) -o $(BINDIR)/pg_calibrate ./cmd/pg_calibrate
 
-build/full: $(BINDIR)/pg_calibrate ## Generate weights via calibration, then build sqlscore
+$(BINDIR)/mysql_calibrate: $(shell find . -name '*.go') scorer/weights/mysql.json
+	go build $(LDFLAGS) -o $(BINDIR)/mysql_calibrate ./cmd/mysql_calibrate
+
+build/full: $(BINDIR)/pg_calibrate $(BINDIR)/mysql_calibrate ## Generate weights via calibration, then build sqlscore
 	@echo "Running weight calibration (this may take hours)..."
 	$(BINDIR)/pg_calibrate -output scorer/weights.json
 	go build $(LDFLAGS) -o $(BINDIR)/sqlscore ./cmd/sqlscore

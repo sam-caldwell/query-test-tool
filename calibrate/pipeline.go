@@ -86,6 +86,13 @@ func (p *Pipeline) Generate(ctx context.Context) error {
 	sg := NewSchemaGenerator(time.Now().UnixNano())
 	familyPlans := sg.GenerateAll(p.cfg.SchemaCount)
 
+	// Apply dialect-specific type mapping (e.g., SERIAL → AUTO_INCREMENT for MySQL)
+	if p.kit != nil && p.kit.MapTypes != nil {
+		for i := range familyPlans {
+			familyPlans[i].Domain = p.kit.MapTypes(familyPlans[i].Domain)
+		}
+	}
+
 	// If a custom schema file is provided, import it and add as an additional family
 	if p.cfg.SchemaFile != "" {
 		importedDomain, err := ImportSchemaFile(p.cfg.SchemaFile)
@@ -426,6 +433,13 @@ func (p *Pipeline) AllBatched(ctx context.Context) (*CalibratedWeights, error) {
 	sg := NewSchemaGenerator(time.Now().UnixNano())
 	familyPlans := sg.GenerateAll(p.cfg.SchemaCount)
 
+	// Apply dialect-specific type mapping
+	if p.kit != nil && p.kit.MapTypes != nil {
+		for i := range familyPlans {
+			familyPlans[i].Domain = p.kit.MapTypes(familyPlans[i].Domain)
+		}
+	}
+
 	existingFamilies, err := p.db.GetExistingFamilies(ctx)
 	if err != nil {
 		// Table might be empty, that's fine
@@ -565,7 +579,11 @@ func (p *Pipeline) AllBatched(ctx context.Context) (*CalibratedWeights, error) {
 	// use the DB-sourced domain name to find the correct archetype for table creation.
 	archetypeByDomain := make(map[string]Domain)
 	for _, arch := range Archetypes() {
-		archetypeByDomain[arch.Name] = arch
+		mapped := arch
+		if p.kit != nil && p.kit.MapTypes != nil {
+			mapped = p.kit.MapTypes(arch)
+		}
+		archetypeByDomain[arch.Name] = mapped
 	}
 
 	// Build a lookup from schema name to work item for DDL/domain info.

@@ -71,7 +71,7 @@ func TestIsChildTable(t *testing.T) {
 	// Find a table that has FKs (child) and one that doesn't (root)
 	var childTable, rootTable TableDef
 	for _, tbl := range domain.Tables {
-		if isChildTable(tbl, domain) {
+		if IsChildTable(tbl, domain) {
 			childTable = tbl
 		} else {
 			rootTable = tbl
@@ -88,17 +88,17 @@ func TestIsChildTable(t *testing.T) {
 		t.Fatal("no root table found")
 	}
 
-	if !isChildTable(childTable, domain) {
+	if !IsChildTable(childTable, domain) {
 		t.Errorf("%s should be a child table", childTable.Name)
 	}
-	if isChildTable(rootTable, domain) {
+	if IsChildTable(rootTable, domain) {
 		t.Errorf("%s should not be a child table", rootTable.Name)
 	}
 }
 
 func TestTopologicalSort_NoCycle(t *testing.T) {
 	domain := Archetypes()[0]
-	sorted := topologicalSort(domain)
+	sorted := TopologicalSort(domain)
 	if len(sorted) != len(domain.Tables) {
 		t.Errorf("expected %d tables, got %d", len(domain.Tables), len(sorted))
 	}
@@ -115,7 +115,7 @@ func TestTopologicalSort_SelfReference(t *testing.T) {
 		},
 	}
 
-	sorted := topologicalSort(domain)
+	sorted := TopologicalSort(domain)
 	if len(sorted) != 1 {
 		t.Errorf("expected 1 table, got %d", len(sorted))
 	}
@@ -149,7 +149,7 @@ func TestGenerateInsertSQL_ChildTable(t *testing.T) {
 
 	// Find a child table and verify it gets more rows than baseRows
 	for _, tbl := range domain.Tables {
-		if isChildTable(tbl, domain) && !hasCompositeUnique(tbl, domain) {
+		if IsChildTable(tbl, domain) && !HasCompositeUnique(tbl, domain) {
 			sql := dg.generateInsertSQL("test_schema", tbl, domain)
 			// Child tables get multiplier > 1, so rows > 100
 			if strings.Contains(sql, "generate_series(1, 100)") {

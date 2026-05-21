@@ -297,7 +297,7 @@ func TestSchemaGenerator_GenerateAll(t *testing.T) {
 
 func TestTopologicalSort(t *testing.T) {
 	for _, domain := range Archetypes() {
-		sorted := topologicalSort(domain)
+		sorted := TopologicalSort(domain)
 		if len(sorted) != len(domain.Tables) {
 			t.Errorf("domain %s: sorted %d tables, expected %d", domain.Name, len(sorted), len(domain.Tables))
 		}

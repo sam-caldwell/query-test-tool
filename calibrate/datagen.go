@@ -29,7 +29,7 @@ func (dg *DataGenerator) PopulateSchema(ctx context.Context, schemaName string, 
 	}
 
 	// Insert data respecting FK ordering (parent tables first)
-	ordered := topologicalSort(domain)
+	ordered := TopologicalSort(domain)
 
 	for _, table := range ordered {
 		sql := dg.generateInsertSQL(schemaName, table, domain)
@@ -49,7 +49,7 @@ func (dg *DataGenerator) PopulateSchema(ctx context.Context, schemaName string, 
 }
 
 // hasCompositeUnique returns true if the table has a multi-column unique index.
-func hasCompositeUnique(table TableDef, domain Domain) bool {
+func HasCompositeUnique(table TableDef, domain Domain) bool {
 	for _, idx := range domain.Indexes {
 		if idx.Table == table.Name && idx.Unique && len(idx.Columns) > 1 {
 			return true
@@ -62,14 +62,14 @@ func hasCompositeUnique(table TableDef, domain Domain) bool {
 // characteristics. High-volume tables (BIGSERIAL PK, event/log patterns, many
 // inbound FKs) get more rows to push past memory thresholds where the query
 // planner makes meaningfully different decisions.
-func tableRowMultiplier(table TableDef, domain Domain) int {
+func TableRowMultiplier(table TableDef, domain Domain) int {
 	// Composite unique constraints cap row count — must check first
-	if hasCompositeUnique(table, domain) {
+	if HasCompositeUnique(table, domain) {
 		return 1
 	}
 
-	// BIGSERIAL PK indicates a high-volume table (readings, events, audit_log, vitals)
-	if len(table.Columns) > 0 && table.Columns[0].Type == "BIGSERIAL" {
+	// BIGSERIAL/BIGINT AUTO_INCREMENT PK indicates a high-volume table
+	if len(table.Columns) > 0 && (table.Columns[0].Type == "BIGSERIAL" || table.Columns[0].Type == "BIGINT AUTO_INCREMENT") {
 		return 10
 	}
 
@@ -86,7 +86,7 @@ func tableRowMultiplier(table TableDef, domain Domain) int {
 	}
 
 	// Regular child tables (have outbound FKs but not BIGSERIAL)
-	if isChildTable(table, domain) {
+	if IsChildTable(table, domain) {
 		return 3
 	}
 
@@ -96,7 +96,7 @@ func tableRowMultiplier(table TableDef, domain Domain) int {
 // generateInsertSQL creates an INSERT ... SELECT generate_series statement.
 func (dg *DataGenerator) generateInsertSQL(schema string, table TableDef, domain Domain) string {
 	baseRows := dg.cfg.RowsPerTable
-	multiplier := tableRowMultiplier(table, domain)
+	multiplier := TableRowMultiplier(table, domain)
 	rows := baseRows * multiplier
 
 	var cols []string
@@ -131,7 +131,7 @@ func dataExpression(col ColumnDef, totalRows int, baseRows int, domain Domain, t
 
 	// Unique indexed columns must use deterministic values based on i.
 	// For VARCHAR columns, use lpad to ensure the value fits within the column width.
-	if isUniqueColumn(col.Name, table.Name, domain) {
+	if IsUniqueColumn(col.Name, table.Name, domain) {
 		switch {
 		case strings.HasPrefix(col.Type, "VARCHAR") || col.Type == "TEXT":
 			// Extract max length from VARCHAR(N) to build a value that fits
@@ -448,7 +448,7 @@ func textExpression(colName string, totalRows int) string {
 }
 
 // isUniqueColumn returns true if the column has a unique index.
-func isUniqueColumn(colName, tableName string, domain Domain) bool {
+func IsUniqueColumn(colName, tableName string, domain Domain) bool {
 	for _, idx := range domain.Indexes {
 		if idx.Table == tableName && idx.Unique && len(idx.Columns) == 1 && idx.Columns[0] == colName {
 			return true
@@ -458,7 +458,7 @@ func isUniqueColumn(colName, tableName string, domain Domain) bool {
 }
 
 // isChildTable returns true if the table has a FK referencing another table.
-func isChildTable(table TableDef, domain Domain) bool {
+func IsChildTable(table TableDef, domain Domain) bool {
 	for _, fk := range domain.ForeignKeys {
 		if fk.Table == table.Name {
 			return true
@@ -468,7 +468,7 @@ func isChildTable(table TableDef, domain Domain) bool {
 }
 
 // topologicalSort orders tables so parents come before children.
-func topologicalSort(domain Domain) []TableDef {
+func TopologicalSort(domain Domain) []TableDef {
 	// Build dependency graph
 	deps := make(map[string][]string) // table -> tables it depends on
 	tableMap := make(map[string]TableDef)
