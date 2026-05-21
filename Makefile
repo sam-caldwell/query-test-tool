@@ -33,17 +33,17 @@ lint: ## Run go vet and govulncheck
 
 # ─── Build ────────────────────────────────────────────────────────────────────
 
-build: $(BINDIR)/sqlscore $(BINDIR)/calibrate ## Build binaries using existing weights
+build: $(BINDIR)/sqlscore $(BINDIR)/pg_calibrate ## Build binaries using existing weights
 
 $(BINDIR)/sqlscore: $(shell find . -name '*.go' -not -path './calibrate/*') scorer/weights.json
 	go build $(LDFLAGS) -o $(BINDIR)/sqlscore ./cmd/sqlscore
 
-$(BINDIR)/calibrate: $(shell find . -name '*.go') scorer/weights.json
-	go build $(LDFLAGS) -o $(BINDIR)/calibrate ./cmd/calibrate
+$(BINDIR)/pg_calibrate: $(shell find . -name '*.go') scorer/weights.json
+	go build $(LDFLAGS) -o $(BINDIR)/pg_calibrate ./cmd/pg_calibrate
 
-build/full: $(BINDIR)/calibrate ## Generate weights via calibration, then build sqlscore
+build/full: $(BINDIR)/pg_calibrate ## Generate weights via calibration, then build sqlscore
 	@echo "Running weight calibration (this may take hours)..."
-	$(BINDIR)/calibrate -output scorer/weights.json
+	$(BINDIR)/pg_calibrate -output scorer/weights.json
 	go build $(LDFLAGS) -o $(BINDIR)/sqlscore ./cmd/sqlscore
 	@echo "Build complete with freshly calibrated weights."
 
@@ -52,7 +52,7 @@ build/full: $(BINDIR)/calibrate ## Generate weights via calibration, then build 
 install: build ## Copy binaries from bin/ to ~/.bin
 	mkdir -p $(INSTALLDIR)
 	cp $(BINDIR)/sqlscore $(INSTALLDIR)/sqlscore
-	cp $(BINDIR)/calibrate $(INSTALLDIR)/calibrate
+	cp $(BINDIR)/pg_calibrate $(INSTALLDIR)/calibrate
 	@echo "Installed to $(INSTALLDIR)/"
 
 # ─── Test ─────────────────────────────────────────────────────────────────────

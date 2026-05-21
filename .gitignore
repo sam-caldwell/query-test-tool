@@ -1,7 +1,8 @@
 # Binaries
 bin/
 /sqlscore
-/calibrate
+/pg_calibrate
+/mysql_calibrate
 *.exe
 
 # Test artifacts
