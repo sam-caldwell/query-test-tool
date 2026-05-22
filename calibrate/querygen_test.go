@@ -128,7 +128,7 @@ func TestQueryGenerator_ValidSQL(t *testing.T) {
 		}
 		// Basic validation: should start with a valid SQL keyword
 		upper := strings.ToUpper(sql)
-		validPrefixes := []string{"SELECT", "WITH", "INSERT", "UPDATE", "DELETE", "CREATE", "ALTER", "DROP"}
+		validPrefixes := []string{"SELECT", "WITH", "INSERT", "UPDATE", "DELETE", "CREATE", "ALTER", "DROP", "TRUNCATE", "DO", "REPLACE"}
 		valid := false
 		for _, prefix := range validPrefixes {
 			if strings.HasPrefix(upper, prefix) {

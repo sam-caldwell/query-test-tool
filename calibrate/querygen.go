@@ -751,6 +751,239 @@ func (qg *QueryGenerator) allTemplates(d Domain) []queryTempl {
 		})
 	}
 
+	// =========================================================================
+	// PostgreSQL-Specific Features
+	// =========================================================================
+
+	for _, table := range tables {
+		t := table
+		cols := nonSerialCols(t)
+		if len(cols) == 0 {
+			continue
+		}
+
+		// --- regex operators (~, ~*, !~) ---
+		tmpls = append(tmpls, queryTempl{
+			QueryType: "regex_match",
+			Rules:     []string{"non-sargable"},
+			Gen: func(rng *rand.Rand) string {
+				col := cols[rng.Intn(len(cols))]
+				return fmt.Sprintf("SELECT * FROM %s WHERE %s ~ '^[A-Z]'", t.Name, col.Name)
+			},
+		})
+		tmpls = append(tmpls, queryTempl{
+			QueryType: "regex_icase",
+			Rules:     []string{"non-sargable"},
+			Gen: func(rng *rand.Rand) string {
+				col := cols[rng.Intn(len(cols))]
+				return fmt.Sprintf("SELECT * FROM %s WHERE %s ~* 'test'", t.Name, col.Name)
+			},
+		})
+
+		// --- string_agg ---
+		tmpls = append(tmpls, queryTempl{
+			QueryType: "string_agg",
+			Rules:     []string{"expensive-function", "group-by-fanout"},
+			Gen: func(rng *rand.Rand) string {
+				groupCol := cols[rng.Intn(len(cols))]
+				aggCol := cols[rng.Intn(len(cols))]
+				return fmt.Sprintf("SELECT %s, string_agg(%s::text, ', ') FROM %s GROUP BY %s",
+					groupCol.Name, aggCol.Name, t.Name, groupCol.Name)
+			},
+		})
+
+		// --- array_agg / unnest ---
+		tmpls = append(tmpls, queryTempl{
+			QueryType: "array_agg",
+			Rules:     []string{"expensive-function", "group-by-fanout"},
+			Gen: func(rng *rand.Rand) string {
+				groupCol := cols[rng.Intn(len(cols))]
+				aggCol := cols[rng.Intn(len(cols))]
+				return fmt.Sprintf("SELECT %s, array_agg(%s) FROM %s GROUP BY %s",
+					groupCol.Name, aggCol.Name, t.Name, groupCol.Name)
+			},
+		})
+		tmpls = append(tmpls, queryTempl{
+			QueryType: "unnest",
+			Rules:     []string{"expensive-function"},
+			Gen: func(rng *rand.Rand) string {
+				return fmt.Sprintf("SELECT unnest(ARRAY[1,2,3,4,5]) AS val, t.* FROM %s t LIMIT 50", t.Name)
+			},
+		})
+
+		// --- generate_series in query ---
+		tmpls = append(tmpls, queryTempl{
+			QueryType: "generate_series",
+			Rules:     nil,
+			Gen: func(rng *rand.Rand) string {
+				col := cols[rng.Intn(len(cols))]
+				return fmt.Sprintf("SELECT gs.i, t.%s FROM generate_series(1, 100) AS gs(i) JOIN %s t ON t.id = gs.i",
+					col.Name, t.Name)
+			},
+		})
+
+		// --- TABLESAMPLE ---
+		tmpls = append(tmpls, queryTempl{
+			QueryType: "tablesample",
+			Rules:     nil,
+			Gen: func(rng *rand.Rand) string {
+				pct := 1 + rng.Intn(10)
+				return fmt.Sprintf("SELECT * FROM %s TABLESAMPLE BERNOULLI(%d)", t.Name, pct)
+			},
+		})
+
+		// --- BETWEEN ---
+		tmpls = append(tmpls, queryTempl{
+			QueryType: "between",
+			Rules:     nil,
+			Gen: func(rng *rand.Rand) string {
+				col := cols[rng.Intn(len(cols))]
+				return fmt.Sprintf("SELECT * FROM %s WHERE %s BETWEEN %s AND %s",
+					t.Name, col.Name, sampleValue(col.Type, rng), sampleValue(col.Type, rng))
+			},
+		})
+
+		// --- HAVING clause ---
+		if len(cols) >= 2 {
+			tmpls = append(tmpls, queryTempl{
+				QueryType: "having",
+				Rules:     []string{"group-by-fanout"},
+				Gen: func(rng *rand.Rand) string {
+					groupCol := cols[rng.Intn(len(cols))]
+					return fmt.Sprintf("SELECT %s, COUNT(*) AS cnt FROM %s GROUP BY %s HAVING COUNT(*) > %d",
+						groupCol.Name, t.Name, groupCol.Name, rng.Intn(5)+1)
+				},
+			})
+		}
+
+		// --- Derived table / subquery in FROM ---
+		tmpls = append(tmpls, queryTempl{
+			QueryType: "derived_table",
+			Rules:     []string{"subquery-nesting"},
+			Gen: func(rng *rand.Rand) string {
+				col := cols[rng.Intn(len(cols))]
+				return fmt.Sprintf("SELECT dt.cnt FROM (SELECT %s, COUNT(*) AS cnt FROM %s GROUP BY %s) dt WHERE dt.cnt > 1",
+					col.Name, t.Name, col.Name)
+			},
+		})
+
+		// --- NOT EXISTS correlated ---
+		tmpls = append(tmpls, queryTempl{
+			QueryType: "not_exists",
+			Rules:     []string{"correlated-subquery"},
+			Gen: func(rng *rand.Rand) string {
+				col := cols[rng.Intn(len(cols))]
+				return fmt.Sprintf("SELECT * FROM %s a WHERE NOT EXISTS (SELECT 1 FROM %s b WHERE b.%s = a.%s AND b.id <> a.id)",
+					t.Name, t.Name, col.Name, col.Name)
+			},
+		})
+
+		// --- Volatile functions ---
+		tmpls = append(tmpls, queryTempl{
+			QueryType: "volatile_random",
+			Rules:     []string{"volatile-function"},
+			Gen: func(rng *rand.Rand) string {
+				return fmt.Sprintf("SELECT * FROM %s WHERE random() < 0.01", t.Name)
+			},
+		})
+		tmpls = append(tmpls, queryTempl{
+			QueryType: "volatile_clock",
+			Rules:     []string{"volatile-function"},
+			Gen: func(rng *rand.Rand) string {
+				return fmt.Sprintf("SELECT *, clock_timestamp() AS ts FROM %s LIMIT 10", t.Name)
+			},
+		})
+
+		// --- Date/time functions in WHERE (non-sargable) ---
+		tmpls = append(tmpls, queryTempl{
+			QueryType: "date_extract",
+			Rules:     []string{"non-sargable"},
+			Gen: func(rng *rand.Rand) string {
+				col := cols[rng.Intn(len(cols))]
+				return fmt.Sprintf("SELECT * FROM %s WHERE EXTRACT(YEAR FROM %s::timestamptz) = 2025", t.Name, col.Name)
+			},
+		})
+
+		// --- Function in ORDER BY ---
+		tmpls = append(tmpls, queryTempl{
+			QueryType: "func_in_order",
+			Rules:     []string{"non-sargable", "unbounded-sort"},
+			Gen: func(rng *rand.Rand) string {
+				col := cols[rng.Intn(len(cols))]
+				return fmt.Sprintf("SELECT * FROM %s ORDER BY length(%s::text)", t.Name, col.Name)
+			},
+		})
+
+		// --- Function in GROUP BY ---
+		tmpls = append(tmpls, queryTempl{
+			QueryType: "func_in_group",
+			Rules:     []string{"non-sargable", "group-by-fanout"},
+			Gen: func(rng *rand.Rand) string {
+				col := cols[rng.Intn(len(cols))]
+				return fmt.Sprintf("SELECT left(%s::text, 3), COUNT(*) FROM %s GROUP BY left(%s::text, 3)",
+					col.Name, t.Name, col.Name)
+			},
+		})
+
+		// --- DDL: CREATE/ALTER/DROP/TRUNCATE ---
+		tmpls = append(tmpls, queryTempl{
+			QueryType: "ddl_alter",
+			Rules:     []string{"ddl-statement"},
+			Gen: func(rng *rand.Rand) string {
+				return fmt.Sprintf("ALTER TABLE %s ADD COLUMN IF NOT EXISTS temp_col_%d TEXT", t.Name, rng.Intn(10000))
+			},
+		})
+		tmpls = append(tmpls, queryTempl{
+			QueryType: "ddl_truncate",
+			Rules:     []string{"ddl-statement", "cascade-drop"},
+			Gen: func(rng *rand.Rand) string {
+				return fmt.Sprintf("TRUNCATE TABLE %s CASCADE", t.Name)
+			},
+		})
+
+		// --- DO $$ anonymous block (PG stored procedure equivalent) ---
+		tmpls = append(tmpls, queryTempl{
+			QueryType: "anon_block",
+			Rules:     []string{"ddl-statement"},
+			Gen: func(rng *rand.Rand) string {
+				return fmt.Sprintf("DO $$ BEGIN PERFORM COUNT(*) FROM %s; END $$", t.Name)
+			},
+		})
+
+		// --- CREATE FUNCTION ---
+		tmpls = append(tmpls, queryTempl{
+			QueryType: "create_func",
+			Rules:     []string{"ddl-statement"},
+			Gen: func(rng *rand.Rand) string {
+				fname := fmt.Sprintf("fn_%s_%d", t.Name, rng.Intn(10000))
+				return fmt.Sprintf("CREATE OR REPLACE FUNCTION %s(p INT) RETURNS INT LANGUAGE SQL AS $$ SELECT p * 2 $$", fname)
+			},
+		})
+
+		// --- Conditional aggregation ---
+		tmpls = append(tmpls, queryTempl{
+			QueryType: "cond_agg",
+			Rules:     []string{"case-expression", "group-by-fanout"},
+			Gen: func(rng *rand.Rand) string {
+				groupCol := cols[rng.Intn(len(cols))]
+				aggCol := cols[rng.Intn(len(cols))]
+				return fmt.Sprintf("SELECT %s, SUM(CASE WHEN %s IS NOT NULL THEN 1 ELSE 0 END) AS non_null FROM %s GROUP BY %s",
+					groupCol.Name, aggCol.Name, t.Name, groupCol.Name)
+			},
+		})
+
+		// --- Nested function calls ---
+		tmpls = append(tmpls, queryTempl{
+			QueryType: "nested_funcs",
+			Rules:     []string{"expensive-function"},
+			Gen: func(rng *rand.Rand) string {
+				col := cols[rng.Intn(len(cols))]
+				return fmt.Sprintf("SELECT reverse(upper(trim(%s::text))) FROM %s WHERE %s IS NOT NULL LIMIT 100",
+					col.Name, t.Name, col.Name)
+			},
+		})
+	}
+
 	return tmpls
 }
 
