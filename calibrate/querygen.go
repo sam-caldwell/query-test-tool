@@ -8,17 +8,31 @@ import (
 
 // QueryGenerator produces random queries targeting specific antipatterns.
 type QueryGenerator struct {
-	rng *rand.Rand
+	rng         *rand.Rand
+	templatesFn func(d Domain) []queryTempl // custom templates, nil = use default PG
 }
 
-// NewQueryGenerator creates a new query generator.
+// NewQueryGenerator creates a new query generator with default PostgreSQL templates.
 func NewQueryGenerator(seed int64) *QueryGenerator {
 	return &QueryGenerator{rng: rand.New(rand.NewSource(seed))}
 }
 
+// NewQueryGeneratorWithTemplates creates a query generator with custom templates.
+func NewQueryGeneratorWithTemplates(seed int64, templatesFn func(d Domain) []queryTempl) *QueryGenerator {
+	return &QueryGenerator{
+		rng:         rand.New(rand.NewSource(seed)),
+		templatesFn: templatesFn,
+	}
+}
+
 // GenerateQueries produces queries for a schema family targeting total query count.
 func (qg *QueryGenerator) GenerateQueries(domain Domain, familyID int, count int) []GeneratedQuery {
-	templates := qg.allTemplates(domain)
+	var templates []queryTempl
+	if qg.templatesFn != nil {
+		templates = qg.templatesFn(domain)
+	} else {
+		templates = qg.allTemplates(domain)
+	}
 	if len(templates) == 0 {
 		return nil
 	}
@@ -37,10 +51,18 @@ func (qg *QueryGenerator) GenerateQueries(domain Domain, familyID int, count int
 	return queries
 }
 
+// QueryTempl defines a query template that generates SQL targeting specific antipatterns.
+type QueryTempl = queryTempl
+
 type queryTempl struct {
 	queryType string
 	rules     []string
 	gen       func(rng *rand.Rand) string
+}
+
+// NewQueryTempl creates a query template (exported for dialect packages).
+func NewQueryTempl(queryType string, rules []string, gen func(rng *rand.Rand) string) queryTempl {
+	return queryTempl{queryType: queryType, rules: rules, gen: gen}
 }
 
 func (qg *QueryGenerator) allTemplates(d Domain) []queryTempl {

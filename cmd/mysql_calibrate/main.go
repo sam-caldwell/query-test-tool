@@ -15,6 +15,9 @@ import (
 
 	"github.com/sam-caldwell/query-test-tool/calibrate"
 	"github.com/sam-caldwell/query-test-tool/calibrate/mysqldb"
+	"github.com/sam-caldwell/query-test-tool/dialect"
+	"github.com/sam-caldwell/query-test-tool/scorer"
+	mysqlscorer "github.com/sam-caldwell/query-test-tool/scorer/mysql"
 )
 
 // enforceSingleInstance uses a PID file lock to ensure only one mysql_calibrate
@@ -45,6 +48,9 @@ func enforceSingleInstance() func() {
 func main() {
 	cleanupPID := enforceSingleInstance()
 	defer cleanupPID()
+
+	// Register MySQL scorer for the runner
+	scorer.RegisterDialectScorer(dialect.MySQL, mysqlscorer.ScoreQuery)
 
 	var (
 		dsn        string
@@ -150,8 +156,9 @@ Flags:
 		NewDataPopulator: func(db calibrate.DialectDB, c calibrate.PipelineConfig) calibrate.DataPopulator {
 			return mysqldb.NewMySQLDataPopulator(db, c)
 		},
-		MapTypes:      mysqldb.MapPgTypesToMySQL,
-		ScorerDialect: "mysql",
+		MapTypes:          mysqldb.MapPgTypesToMySQL,
+		NewQueryGenerator: mysqldb.NewMySQLQueryGenerator,
+		ScorerDialect:     "mysql",
 	}
 
 	ctx := context.Background()

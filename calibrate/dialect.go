@@ -57,6 +57,9 @@ type DataPopulator interface {
 	PopulateSchema(ctx context.Context, schemaName string, domain Domain) error
 }
 
+// QueryGeneratorFactory creates a query generator for a specific dialect.
+type QueryGeneratorFactory func(seed int64) *QueryGenerator
+
 // DialectKit bundles all dialect-specific components needed by the pipeline.
 type DialectKit struct {
 	// NewDB creates a new database connection for this dialect.
@@ -71,6 +74,10 @@ type DialectKit struct {
 	// MapTypes converts archetype column types to dialect-specific types.
 	// For PostgreSQL this is identity; for MySQL it converts SERIAL->AUTO_INCREMENT, etc.
 	MapTypes func(d Domain) Domain
+
+	// NewQueryGenerator creates a dialect-specific query generator.
+	// If nil, the default PostgreSQL query generator is used.
+	NewQueryGenerator QueryGeneratorFactory
 
 	// ScorerDialect is the dialect name to pass to scorer.ScoreQueryWithDialect.
 	ScorerDialect string

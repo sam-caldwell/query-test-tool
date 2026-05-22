@@ -10,10 +10,12 @@ import (
 // MySQLDDLGenerator implements calibrate.DDLGenerator for MySQL.
 type MySQLDDLGenerator struct{}
 
+// MySQLDDLGenerator uses table name prefixes within a single database
+// (e.g., cal_00001_users) since MySQL users typically don't have CREATE DATABASE privilege.
+// The "schemaName" parameter becomes a table prefix.
+
 func (g *MySQLDDLGenerator) GenerateDDL(d calibrate.Domain, schemaName string) string {
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s`;\n\n", schemaName))
-
 	for _, table := range d.Tables {
 		b.WriteString(generateCreateTable(schemaName, table))
 		b.WriteString("\n")
@@ -31,7 +33,6 @@ func (g *MySQLDDLGenerator) GenerateDDL(d calibrate.Domain, schemaName string) s
 
 func (g *MySQLDDLGenerator) GenerateDDLTablesOnly(d calibrate.Domain, schemaName string) string {
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s`;\n\n", schemaName))
 	for _, table := range d.Tables {
 		b.WriteString(generateCreateTable(schemaName, table))
 		b.WriteString("\n")
@@ -52,9 +53,14 @@ func (g *MySQLDDLGenerator) GenerateDDLIndexesAndFKs(d calibrate.Domain, schemaN
 	return b.String()
 }
 
+// prefixedName returns the table name with the schema prefix: cal_00001_users
+func prefixedName(schema, name string) string {
+	return fmt.Sprintf("%s_%s", schema, name)
+}
+
 func generateCreateTable(schema string, t calibrate.TableDef) string {
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("CREATE TABLE `%s`.`%s` (\n", schema, t.Name))
+	b.WriteString(fmt.Sprintf("CREATE TABLE IF NOT EXISTS `%s` (\n", prefixedName(schema, t.Name)))
 
 	var pkCol string
 	for i, col := range t.Columns {
@@ -92,11 +98,11 @@ func generateCreateIndex(schema string, idx calibrate.IndexDef) string {
 	for i, c := range idx.Columns {
 		cols[i] = fmt.Sprintf("`%s`", c)
 	}
-	return fmt.Sprintf("CREATE %sINDEX `%s` ON `%s`.`%s` (%s);\n",
-		unique, idx.Name, schema, idx.Table, strings.Join(cols, ", "))
+	return fmt.Sprintf("CREATE %sINDEX `%s_%s` ON `%s` (%s);\n",
+		unique, schema, idx.Name, prefixedName(schema, idx.Table), strings.Join(cols, ", "))
 }
 
 func generateAddFK(schema string, fk calibrate.FKDef) string {
-	return fmt.Sprintf("ALTER TABLE `%s`.`%s` ADD CONSTRAINT `%s` FOREIGN KEY (`%s`) REFERENCES `%s`.`%s` (`%s`);\n",
-		schema, fk.Table, fk.Name, fk.Column, schema, fk.RefTable, fk.RefColumn)
+	return fmt.Sprintf("ALTER TABLE `%s` ADD CONSTRAINT `%s_%s` FOREIGN KEY (`%s`) REFERENCES `%s` (`%s`);\n",
+		prefixedName(schema, fk.Table), schema, fk.Name, fk.Column, prefixedName(schema, fk.RefTable), fk.RefColumn)
 }

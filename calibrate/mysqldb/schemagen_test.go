@@ -11,19 +11,19 @@ func testDomain() calibrate.Domain {
 	return MapPgTypesToMySQL(calibrate.Archetypes()[0])
 }
 
-func TestGenerateDDL_ContainsCreateDatabase(t *testing.T) {
+func TestGenerateDDL_NoDatabaseCreate(t *testing.T) {
 	g := &MySQLDDLGenerator{}
 	ddl := g.GenerateDDL(testDomain(), "cal_00001")
-	if !strings.Contains(ddl, "CREATE DATABASE IF NOT EXISTS `cal_00001`") {
-		t.Error("DDL should contain CREATE DATABASE")
+	if strings.Contains(ddl, "CREATE DATABASE") {
+		t.Error("DDL should not contain CREATE DATABASE (uses table prefixes)")
 	}
 }
 
-func TestGenerateDDL_ContainsCreateTable(t *testing.T) {
+func TestGenerateDDL_ContainsPrefixedTable(t *testing.T) {
 	g := &MySQLDDLGenerator{}
 	ddl := g.GenerateDDL(testDomain(), "cal_00001")
-	if !strings.Contains(ddl, "CREATE TABLE `cal_00001`.") {
-		t.Error("DDL should contain CREATE TABLE with database prefix")
+	if !strings.Contains(ddl, "CREATE TABLE IF NOT EXISTS `cal_00001_") {
+		t.Error("DDL should contain CREATE TABLE with prefixed name")
 	}
 }
 
@@ -95,7 +95,7 @@ func TestGenerateDDLIndexesAndFKs_NoTables(t *testing.T) {
 func TestGenerateDDL_NoPostgreSQLSyntax(t *testing.T) {
 	g := &MySQLDDLGenerator{}
 	ddl := g.GenerateDDL(testDomain(), "cal_00001")
-	pgPatterns := []string{"SERIAL PRIMARY KEY", "BIGSERIAL", "TIMESTAMPTZ", "JSONB", "UNLOGGED", "CREATE SCHEMA"}
+	pgPatterns := []string{"SERIAL PRIMARY KEY", "BIGSERIAL", "TIMESTAMPTZ", "JSONB", "UNLOGGED", "CREATE SCHEMA", "CREATE DATABASE"}
 	for _, p := range pgPatterns {
 		if strings.Contains(ddl, p) {
 			t.Errorf("MySQL DDL should not contain PostgreSQL syntax %q", p)
@@ -106,9 +106,8 @@ func TestGenerateDDL_NoPostgreSQLSyntax(t *testing.T) {
 func TestGenerateDDL_BacktickQuoting(t *testing.T) {
 	g := &MySQLDDLGenerator{}
 	ddl := g.GenerateDDL(testDomain(), "cal_00001")
-	// MySQL uses backticks, not double quotes
-	if !strings.Contains(ddl, "`cal_00001`") {
-		t.Error("DDL should use backtick quoting for identifiers")
+	if !strings.Contains(ddl, "`cal_00001_") {
+		t.Error("DDL should use backtick quoting for prefixed table names")
 	}
 }
 

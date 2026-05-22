@@ -15,8 +15,8 @@ func TestGenerateInsertSQL_UsesRecursiveCTE(t *testing.T) {
 	if !strings.Contains(sql, "WITH RECURSIVE seq") {
 		t.Error("MySQL INSERT should use recursive CTE instead of generate_series")
 	}
-	if !strings.Contains(sql, "INSERT INTO `cal_00001`.") {
-		t.Error("should reference database-qualified table")
+	if !strings.Contains(sql, "INSERT INTO `cal_00001_") {
+		t.Error("should reference prefixed table name")
 	}
 }
 

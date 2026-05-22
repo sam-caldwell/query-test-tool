@@ -71,6 +71,14 @@ func (p *Pipeline) Close() error {
 	return p.db.Close()
 }
 
+// newQueryGen creates a query generator using the dialect kit or the default PG generator.
+func (p *Pipeline) newQueryGen(seed int64) *QueryGenerator {
+	if p.kit != nil && p.kit.NewQueryGenerator != nil {
+		return p.kit.NewQueryGenerator(seed)
+	}
+	return NewQueryGenerator(seed)
+}
+
 // Init creates tracking tables.
 func (p *Pipeline) Init(ctx context.Context) error {
 	log.Println("Initializing calibration tracking tables...")
@@ -284,7 +292,7 @@ func (p *Pipeline) Generate(ctx context.Context) error {
 		genWg.Add(1)
 		go func(idx int, pl SchemaFamilyPlan) {
 			defer genWg.Done()
-			qg := NewQueryGenerator(time.Now().UnixNano() + int64(idx))
+			qg := p.newQueryGen(time.Now().UnixNano() + int64(idx))
 			queries := qg.GenerateQueries(pl.Domain, familyIDs[idx], queriesPerFamily)
 			batchCh <- queryBatch{queries: queries}
 		}(i, plan)
@@ -525,7 +533,7 @@ func (p *Pipeline) AllBatched(ctx context.Context) (*CalibratedWeights, error) {
 			continue
 		}
 		log.Printf("Generating %d queries for family %s...", queriesPerFamily, plan.FamilyName)
-		qg := NewQueryGenerator(time.Now().UnixNano() + int64(i))
+		qg := p.newQueryGen(time.Now().UnixNano() + int64(i))
 		queries := qg.GenerateQueries(plan.Domain, familyIDs[i], queriesPerFamily)
 		insertBatchSize := 1000
 		for j := 0; j < len(queries); j += insertBatchSize {

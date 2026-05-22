@@ -39,7 +39,7 @@ func (dp *MySQLDataPopulator) PopulateSchema(ctx context.Context, schemaName str
 
 	// ANALYZE tables for optimizer statistics
 	for _, table := range domain.Tables {
-		if _, err := dp.db.Conn().ExecContext(ctx, fmt.Sprintf("ANALYZE TABLE `%s`.`%s`", schemaName, table.Name)); err != nil {
+		if _, err := dp.db.Conn().ExecContext(ctx, fmt.Sprintf("ANALYZE TABLE `%s_%s`", schemaName, table.Name)); err != nil {
 			return fmt.Errorf("analyzing %s.%s: %w", schemaName, table.Name, err)
 		}
 	}
@@ -66,7 +66,7 @@ func (dp *MySQLDataPopulator) generateInsertSQL(schema string, table calibrate.T
 	// MySQL doesn't have generate_series. Use a recursive CTE.
 	// For large row counts, we use a cross-join approach for speed.
 	return fmt.Sprintf(
-		"INSERT INTO `%s`.`%s` (%s)\n"+
+		"INSERT INTO `%s_%s` (%s)\n"+
 			"WITH RECURSIVE seq AS (\n"+
 			"  SELECT 1 AS i\n"+
 			"  UNION ALL\n"+
@@ -120,6 +120,7 @@ func mysqlBaseValueExpression(col calibrate.ColumnDef, totalRows int) string {
 		return fmt.Sprintf("IF(RAND() < 0.3, FLOOR(RAND() * 10), FLOOR(RAND() * %d))", totalRows)
 	case strings.HasPrefix(mysqlType, "DECIMAL"):
 		maxVal := 10000.0
+		castType := "DECIMAL(10,2)"
 		if len(mysqlType) > 8 {
 			parts := strings.TrimPrefix(mysqlType, "DECIMAL(")
 			parts = strings.TrimSuffix(parts, ")")
@@ -136,9 +137,10 @@ func mysqlBaseValueExpression(col calibrate.ColumnDef, totalRows int) string {
 					}
 					maxVal -= 0.01
 				}
+				castType = mysqlType
 			}
 		}
-		return fmt.Sprintf("CAST(POW(RAND(), 2) * %.2f AS DECIMAL(10,2))", maxVal)
+		return fmt.Sprintf("CAST(POW(RAND(), 2) * %.2f AS %s)", maxVal, castType)
 	case mysqlType == "TINYINT(1)":
 		return "IF(RAND() > 0.3, 1, 0)"
 	case mysqlType == "DATE":

@@ -12,18 +12,28 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 
+	"regexp"
+
 	"github.com/sam-caldwell/query-test-tool/calibrate"
 )
 
 // DB implements calibrate.DialectDB for MySQL.
 type DB struct {
-	conn *sql.DB
-	cfg  calibrate.PipelineConfig
+	conn       *sql.DB
+	cfg        calibrate.PipelineConfig
+	debugCount int
 }
 
 // NewDB creates a new MySQL database connection.
 func NewDB(cfg calibrate.PipelineConfig) (*DB, error) {
-	db, err := sql.Open("mysql", cfg.DSN+"&parseTime=true&multiStatements=true&interpolateParams=true")
+	// Append MySQL connection parameters. Use ? if no params exist, & otherwise.
+	dsn := cfg.DSN
+	if strings.Contains(dsn, "?") {
+		dsn += "&parseTime=true&multiStatements=true&interpolateParams=true"
+	} else {
+		dsn += "?parseTime=true&multiStatements=true&interpolateParams=true"
+	}
+	db, err := sql.Open("mysql", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("connecting to MySQL: %w", err)
 	}
@@ -174,12 +184,31 @@ func (db *DB) ApplySchema(ctx context.Context, schemaName, ddl string) error {
 			continue
 		}
 		if _, err := db.conn.ExecContext(ctx, stmt); err != nil {
-			// Try to clean up on failure
-			db.conn.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS `%s`", schemaName))
+			// Try to clean up on failure — drop all prefixed tables
+			db.dropPrefixedTables(ctx, schemaName)
 			return fmt.Errorf("applying DDL: %w", err)
 		}
 	}
 	return nil
+}
+
+func (db *DB) dropPrefixedTables(ctx context.Context, prefix string) {
+	rows, err := db.conn.QueryContext(ctx,
+		"SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME LIKE ?",
+		prefix+"_%")
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			continue
+		}
+		db.conn.ExecContext(ctx, "SET foreign_key_checks = 0")
+		db.conn.ExecContext(ctx, fmt.Sprintf("DROP TABLE IF EXISTS `%s`", name))
+		db.conn.ExecContext(ctx, "SET foreign_key_checks = 1")
+	}
 }
 
 func (db *DB) ApplyIndexesAndFKs(ctx context.Context, ddl string) error {
@@ -197,43 +226,38 @@ func (db *DB) ApplyIndexesAndFKs(ctx context.Context, ddl string) error {
 }
 
 func (db *DB) DropOrphanSchemas(ctx context.Context) (int, error) {
-	// Find databases matching cal_NNNNN pattern that aren't in schema_instances
+	// Find all cal_NNNNN prefixed tables and drop them (batch-and-drop cleanup).
+	// Uses table prefix pattern instead of separate databases.
 	rows, err := db.conn.QueryContext(ctx,
-		`SELECT s.SCHEMA_NAME FROM information_schema.SCHEMATA s
-		 WHERE s.SCHEMA_NAME REGEXP '^cal_[0-9]{5}$'
-		 AND NOT EXISTS (SELECT 1 FROM calibration_schema_instances si WHERE si.schema_name = s.SCHEMA_NAME)`)
+		`SELECT TABLE_NAME FROM information_schema.TABLES
+		 WHERE TABLE_SCHEMA = DATABASE()
+		 AND TABLE_NAME REGEXP '^cal_[0-9]{5}_'`)
 	if err != nil {
 		return 0, err
 	}
 	defer rows.Close()
 
-	var dropped int
+	var tables []string
 	for rows.Next() {
 		var name string
 		if err := rows.Scan(&name); err != nil {
 			continue
 		}
-		if _, err := db.conn.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS `%s`", name)); err != nil {
-			log.Printf("Warning: failed to drop orphan database %s: %v", name, err)
-			continue
-		}
-		dropped++
+		tables = append(tables, name)
 	}
 
-	// Also drop databases that ARE in schema_instances (batch-and-drop cleanup)
-	rows2, err := db.conn.QueryContext(ctx,
-		`SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME REGEXP '^cal_[0-9]{5}$'`)
-	if err != nil {
-		return dropped, err
+	if len(tables) == 0 {
+		return 0, nil
 	}
-	defer rows2.Close()
 
-	for rows2.Next() {
-		var name string
-		if err := rows2.Scan(&name); err != nil {
-			continue
-		}
-		if _, err := db.conn.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS `%s`", name)); err != nil {
+	// Disable FK checks for faster drops
+	db.conn.ExecContext(ctx, "SET foreign_key_checks = 0")
+	defer db.conn.ExecContext(ctx, "SET foreign_key_checks = 1")
+
+	dropped := 0
+	for _, name := range tables {
+		if _, err := db.conn.ExecContext(ctx, fmt.Sprintf("DROP TABLE IF EXISTS `%s`", name)); err != nil {
+			log.Printf("Warning: failed to drop table %s: %v", name, err)
 			continue
 		}
 		dropped++
@@ -390,50 +414,109 @@ func (db *DB) GetQueriesForFamily(ctx context.Context, familyID int) ([]calibrat
 }
 
 func (db *DB) RunExplain(ctx context.Context, schemaName, querySQL string) (*calibrate.ExplainResult, error) {
-	// Set the default database and statement timeout
+	// For MySQL, tables use prefix naming (cal_00001_users) within a single database.
+	// The querySQL already references unprefixed table names from the archetype.
+	// We need to rewrite table names to include the schema prefix.
+	// For now, we use EXPLAIN FORMAT=JSON on the prefixed query.
 	timeoutMs := db.cfg.StatementTimeout
 	if timeoutMs == 0 {
 		timeoutMs = 5000
 	}
-	_, err := db.conn.ExecContext(ctx, fmt.Sprintf("USE `%s`", schemaName))
-	if err != nil {
-		return nil, fmt.Errorf("USE database: %w", err)
-	}
-	_, err = db.conn.ExecContext(ctx, fmt.Sprintf("SET SESSION max_execution_time = %d", timeoutMs))
-	if err != nil {
-		// Non-fatal — some MySQL versions don't support this
-		log.Printf("Warning: SET max_execution_time failed: %v", err)
+
+	// Rewrite table names in the query to use the schema prefix
+	prefixedSQL := rewriteTableNames(querySQL, schemaName)
+	if prefixedSQL == "" {
+		return nil, fmt.Errorf("rewriteTableNames returned empty for: %s", querySQL[:min(50, len(querySQL))])
 	}
 
+	explainSQL := "EXPLAIN FORMAT=JSON " + prefixedSQL
 	var planJSON string
-	err = db.conn.QueryRowContext(ctx, "EXPLAIN FORMAT=JSON "+querySQL).Scan(&planJSON)
+	err := db.conn.QueryRowContext(ctx, explainSQL).Scan(&planJSON)
 	if err != nil {
+		// Log first few failures for debugging
+		if db.debugCount < 10 {
+			log.Printf("DEBUG EXPLAIN failed: schema=%s err=%v\n  original: %s\n  rewritten: %s", schemaName, err, querySQL[:min(100, len(querySQL))], prefixedSQL[:min(100, len(prefixedSQL))])
+			db.debugCount++
+		}
 		return nil, fmt.Errorf("EXPLAIN failed: %w", err)
 	}
 
 	return parseMySQLExplainJSON([]byte(planJSON))
 }
 
-func parseMySQLExplainJSON(data []byte) (*calibrate.ExplainResult, error) {
-	var raw struct {
-		QueryBlock struct {
-			CostInfo struct {
-				QueryCost string `json:"query_cost"`
-			} `json:"cost_info"`
-		} `json:"query_block"`
+// rewriteTableNames rewrites all table references in a query to use the schema prefix.
+// Since the query generator produces queries with known table names from archetypes,
+// we use word-boundary regex replacement for each known table name.
+func rewriteTableNames(sql, prefix string) string {
+	// Collect all known table names from all archetypes, sorted longest first
+	// to prevent partial replacements (e.g., "users" matching inside "user_roles")
+	var tableNames []string
+	seen := make(map[string]bool)
+	for _, arch := range calibrate.Archetypes() {
+		for _, table := range arch.Tables {
+			if !seen[table.Name] {
+				tableNames = append(tableNames, table.Name)
+				seen[table.Name] = true
+			}
+		}
 	}
+	// Sort longest first
+	for i := 0; i < len(tableNames); i++ {
+		for j := i + 1; j < len(tableNames); j++ {
+			if len(tableNames[j]) > len(tableNames[i]) {
+				tableNames[i], tableNames[j] = tableNames[j], tableNames[i]
+			}
+		}
+	}
+
+	result := sql
+	for _, name := range tableNames {
+		prefixed := prefix + "_" + name
+		// Use a word-boundary aware replacement via regexp
+		re := regexp.MustCompile(`\b` + regexp.QuoteMeta(name) + `\b`)
+		result = re.ReplaceAllString(result, prefixed)
+	}
+	return result
+}
+
+func parseMySQLExplainJSON(data []byte) (*calibrate.ExplainResult, error) {
+	// MySQL 9.x uses json_schema_version 2.0 with query_plan.estimated_total_cost
+	// Older MySQL uses query_block.cost_info.query_cost
+	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("parsing EXPLAIN JSON: %w", err)
 	}
 
 	var cost float64
-	fmt.Sscanf(raw.QueryBlock.CostInfo.QueryCost, "%f", &cost)
+
+	// Try MySQL 9.x format (json_schema_version 2.0)
+	if planData, ok := raw["query_plan"]; ok {
+		var plan struct {
+			EstimatedTotalCost float64 `json:"estimated_total_cost"`
+			EstimatedRows      float64 `json:"estimated_rows"`
+		}
+		if err := json.Unmarshal(planData, &plan); err == nil && plan.EstimatedTotalCost > 0 {
+			cost = plan.EstimatedTotalCost
+		}
+	}
+
+	// Fallback: MySQL 8.x format (query_block.cost_info.query_cost)
+	if cost == 0 {
+		if blockData, ok := raw["query_block"]; ok {
+			var block struct {
+				CostInfo struct {
+					QueryCost string `json:"query_cost"`
+				} `json:"cost_info"`
+			}
+			if err := json.Unmarshal(blockData, &block); err == nil {
+				fmt.Sscanf(block.CostInfo.QueryCost, "%f", &cost)
+			}
+		}
+	}
 
 	return &calibrate.ExplainResult{
 		Plan:      data,
 		TotalCost: cost,
-		// MySQL EXPLAIN FORMAT=JSON doesn't provide actual_time, rows_actual,
-		// or buffer stats. These remain zero.
 	}, nil
 }
 
