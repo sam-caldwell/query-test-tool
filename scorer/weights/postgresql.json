@@ -1,9 +1,9 @@
 {
   "version": 1,
-  "description": "Calibrated weights from 138664 samples (R²=0.9612)",
-  "r_squared": 0.9611882347229443,
-  "sample_size": 138664,
-  "generated_at": "2026-05-21T01:14:18Z",
+  "description": "Calibrated weights from 139936 samples (R²=1.1497)",
+  "r_squared": 1.149717689623621,
+  "sample_size": 139936,
+  "generated_at": "2026-05-23T01:20:37Z",
   "weights": {
     "boolean-nesting": 25,
     "cartesian-product": 1,
@@ -35,7 +35,7 @@
     "select-star": 1,
     "set-operation": 25,
     "subquery-nesting": 1,
-    "unbounded-sort": 11,
+    "unbounded-sort": 10,
     "union-distinct": 1,
     "volatile-function": 1,
     "window-function": 1,
