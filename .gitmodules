@@ -1,0 +1,4 @@
+[submodule ".claude/skills"]
+	path = .claude/skills
+	url = git@github.com:asymmetric-effort/skills.git
+	branch = release
