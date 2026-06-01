@@ -6,7 +6,7 @@ LDFLAGS := -ldflags "-X main.version=$(VERSION) -X main.commit=$(GIT_COMMIT)"
 BINDIR := bin
 INSTALLDIR := $(HOME)/.bin
 
-BINARIES := sqlscore calibrate
+BINARIES := query-test-tool calibrate
 
 .PHONY: all clean lint build build/full test install release release/patch release/minor release/major help
 
@@ -33,28 +33,28 @@ lint: ## Run go vet and govulncheck
 
 # ─── Build ────────────────────────────────────────────────────────────────────
 
-build: $(BINDIR)/sqlscore $(BINDIR)/pg_calibrate $(BINDIR)/mysql_calibrate ## Build binaries using existing weights
+build: $(BINDIR)/query-test-tool $(BINDIR)/pg_calibrate $(BINDIR)/mysql_calibrate ## Build binaries using existing weights
 
-$(BINDIR)/sqlscore: $(shell find . -name '*.go' -not -path './calibrate/*') scorer/weights.json
-	go build $(LDFLAGS) -o $(BINDIR)/sqlscore ./cmd/sqlscore
+$(BINDIR)/query-test-tool: $(shell find . -name '*.go' -not -path './src/calibrate/*') src/scorer/weights.json
+	go build $(LDFLAGS) -o $(BINDIR)/query-test-tool ./cmd/query-test-tool
 
-$(BINDIR)/pg_calibrate: $(shell find . -name '*.go') scorer/weights/postgresql.json
+$(BINDIR)/pg_calibrate: $(shell find . -name '*.go') src/scorer/weights/postgresql.json
 	go build $(LDFLAGS) -o $(BINDIR)/pg_calibrate ./cmd/pg_calibrate
 
-$(BINDIR)/mysql_calibrate: $(shell find . -name '*.go') scorer/weights/mysql.json
+$(BINDIR)/mysql_calibrate: $(shell find . -name '*.go') src/scorer/weights/mysql.json
 	go build $(LDFLAGS) -o $(BINDIR)/mysql_calibrate ./cmd/mysql_calibrate
 
-build/full: $(BINDIR)/pg_calibrate $(BINDIR)/mysql_calibrate ## Generate weights via calibration, then build sqlscore
+build/full: $(BINDIR)/pg_calibrate $(BINDIR)/mysql_calibrate ## Generate weights via calibration, then build Query Test Tool
 	@echo "Running weight calibration (this may take hours)..."
-	$(BINDIR)/pg_calibrate -output scorer/weights.json
-	go build $(LDFLAGS) -o $(BINDIR)/sqlscore ./cmd/sqlscore
+	$(BINDIR)/pg_calibrate -output src/scorer/weights.json
+	go build $(LDFLAGS) -o $(BINDIR)/query-test-tool ./cmd/query-test-tool
 	@echo "Build complete with freshly calibrated weights."
 
 # ─── Install ──────────────────────────────────────────────────────────────────
 
 install: build ## Copy binaries from bin/ to ~/.bin
 	mkdir -p $(INSTALLDIR)
-	cp $(BINDIR)/sqlscore $(INSTALLDIR)/sqlscore
+	cp $(BINDIR)/query-test-tool $(INSTALLDIR)/query-test-tool
 	cp $(BINDIR)/pg_calibrate $(INSTALLDIR)/calibrate
 	@echo "Installed to $(INSTALLDIR)/"
 
@@ -63,13 +63,13 @@ install: build ## Copy binaries from bin/ to ~/.bin
 test: test/unit test/integration test/e2e ## Run all tests (unit → integration → e2e)
 
 test/unit: ## Run unit tests
-	go test -count=1 -timeout 60s ./parser/... ./scorer/... ./calibrate/...
+	go test -count=1 -timeout 60s ./src/parser/... ./src/scorer/... ./src/calibrate/...
 
 test/integration: ## Run integration tests (requires PostgreSQL for calibrate)
 	go test -count=1 -timeout 120s -tags integration ./...
 
 test/e2e: build ## Run end-to-end tests against built binaries
-	go test -count=1 -timeout 120s ./cmd/sqlscore/...
+	go test -count=1 -timeout 120s ./cmd/query-test-tool/...
 
 # ─── Release ──────────────────────────────────────────────────────────────────
 

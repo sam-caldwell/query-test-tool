@@ -2,7 +2,7 @@
 
 ## Theoretical Foundation
 
-sqlscore draws from two established complexity models, adapted to SQL:
+query-test-tool draws from two established complexity models, adapted to SQL:
 
 ### McCabe's Cyclomatic Complexity (1976)
 
@@ -145,7 +145,7 @@ UNION, INTERSECT, and EXCEPT combine result sets from multiple queries, adding s
 The scoring weights are deliberately conservative starting points. To calibrate for your workload:
 
 1. Collect a corpus of production queries with `EXPLAIN ANALYZE` output
-2. Score each query with sqlscore
+2. Score each query with query-test-tool
 3. Correlate scores with actual execution time, rows examined, and memory usage
 4. Adjust weights to maximize correlation
 

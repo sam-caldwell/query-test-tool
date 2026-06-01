@@ -2,7 +2,7 @@
 
 ## Overview
 
-sqlscore is structured as a three-layer pipeline:
+query-test-tool is structured as a three-layer pipeline:
 
 ```
 SQL string → Parser → AST → Scorers → Report
@@ -12,15 +12,16 @@ SQL string → Parser → AST → Scorers → Report
 
 ```
 query-test-tool/
-├── cmd/sqlscore/     # CLI entry point
+├── cmd/query-test-tool/     # CLI entry point
 │   └── main.go       # Flag parsing, I/O, text/JSON output
-├── parser/           # SQL parsing and AST traversal
-│   └── parser.go     # Parse(), Walk(), Children()
-├── scorer/           # Scoring engine
-│   ├── scorer.go     # ScoreQuery(), Report, types
-│   ├── efficiency.go # EfficiencyScorer
-│   ├── memory_compute.go  # MemoryComputeScorer
-│   └── cognitive.go  # CognitiveScorer
+├── src/
+│   ├── parser/       # SQL parsing and AST traversal
+│   │   └── parser.go # Parse(), Walk(), Children()
+│   └── scorer/       # Scoring engine
+│       ├── scorer.go # ScoreQuery(), Report, types
+│       ├── efficiency.go # EfficiencyScorer
+│       ├── memory_compute.go  # MemoryComputeScorer
+│       └── cognitive.go  # CognitiveScorer
 └── docs/             # Documentation
 ```
 

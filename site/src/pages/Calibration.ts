@@ -23,7 +23,7 @@ export function Calibration() {
             '                                                        └─────────────┘\n' +
             '                                                                │\n' +
             '                                                                ▼\n' +
-            '                                                       scorer/weights.json\n',
+            '                                                       src/scorer/weights.json\n',
         ),
 
         createElement('h2', null, 'Domain Archetypes'),
@@ -138,7 +138,7 @@ export function Calibration() {
             ['-queries', '1000000', 'Target number of queries'],
             ['-rows', '70000', 'Base rows per table (tiered multipliers apply)'],
             ['-schema-file', '', 'Path to .SQL DDL file for custom calibration domain'],
-            ['-output', 'scorer/weights.json', 'Output file for calculated weights'],
+            ['-output', 'src/scorer/weights.json', 'Output file for calculated weights'],
             ['-phase', 'all', 'Pipeline phase: init, generate, run, calculate, or all'],
         ]),
 

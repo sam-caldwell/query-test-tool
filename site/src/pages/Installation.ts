@@ -15,7 +15,7 @@ export function Installation() {
 
         createElement('h2', null, 'Go Install'),
         createElement('pre', {},
-            'go install github.com/sam-caldwell/query-test-tool/cmd/sqlscore@latest\n' +
+            'go install github.com/sam-caldwell/query-test-tool/cmd/query-test-tool@latest\n' +
             'go install github.com/sam-caldwell/query-test-tool/cmd/calibrate@latest\n',
         ),
 

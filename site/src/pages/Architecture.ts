@@ -13,16 +13,16 @@ export function Architecture() {
         createElement('h2', null, 'Package Layout'),
         createElement('pre', {},
             'query-test-tool/\n' +
-            '├── scorer/           # Scoring engine\n' +
+            '├── src/scorer/       # Scoring engine\n' +
             '│   ├── weights.json  # Embedded calibrated weights\n' +
             '│   ├── weights.go    # go:embed loader\n' +
             '│   ├── scorer.go     # ScoreQuery(), Report, types\n' +
             '│   ├── efficiency.go # EfficiencyScorer\n' +
             '│   ├── memory_compute.go\n' +
             '│   └── cognitive.go  # CognitiveScorer\n' +
-            '├── parser/           # pg_query wrapper\n' +
+            '├── src/parser/       # pg_query wrapper\n' +
             '│   └── parser.go     # Parse(), Walk(), Children()\n' +
-            '├── calibrate/        # Weight calibration system\n' +
+            '├── src/calibrate/    # Weight calibration system\n' +
             '│   ├── archetype.go  # 4 merged domain archetypes (84 tables)\n' +
             '│   ├── mutation.go   # Schema degradation generators\n' +
             '│   ├── schemagen.go  # Schema family generation\n' +
@@ -31,7 +31,7 @@ export function Architecture() {
             '│   ├── pipeline.go   # Batch-and-drop orchestration\n' +
             '│   ├── runner.go     # EXPLAIN execution\n' +
             '│   └── regression.go # Paired comparison weights\n' +
-            '├── cmd/sqlscore/     # CLI\n' +
+            '├── cmd/query-test-tool/ # CLI\n' +
             '└── cmd/calibrate/    # Calibration CLI\n',
         ),
 
@@ -39,7 +39,7 @@ export function Architecture() {
         createElement('h3', null, 'Embedded Weights'),
         createElement('p', null,
             'Scoring weights are compiled into the binary via Go\'s //go:embed. No external config files needed at runtime. ',
-            'The calibrate tool writes scorer/weights.json; rebuilding picks up new weights.',
+            'The calibrate tool writes src/scorer/weights.json; rebuilding picks up new weights.',
         ),
 
         createElement('h3', null, 'Independent Scorers'),

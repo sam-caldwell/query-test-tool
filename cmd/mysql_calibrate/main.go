@@ -13,11 +13,11 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/sam-caldwell/query-test-tool/calibrate"
-	"github.com/sam-caldwell/query-test-tool/calibrate/mysqldb"
-	"github.com/sam-caldwell/query-test-tool/dialect"
-	"github.com/sam-caldwell/query-test-tool/scorer"
-	mysqlscorer "github.com/sam-caldwell/query-test-tool/scorer/mysql"
+	"github.com/sam-caldwell/query-test-tool/src/calibrate"
+	"github.com/sam-caldwell/query-test-tool/src/calibrate/mysqldb"
+	"github.com/sam-caldwell/query-test-tool/src/dialect"
+	"github.com/sam-caldwell/query-test-tool/src/scorer"
+	mysqlscorer "github.com/sam-caldwell/query-test-tool/src/scorer/mysql"
 )
 
 // enforceSingleInstance uses a PID file lock to ensure only one mysql_calibrate
@@ -85,7 +85,7 @@ func main() {
 	flag.IntVar(&batchSize, "batch-size", defaultCfg.BatchSize, "Schemas per batch in batch-and-drop mode (0 to disable)")
 	flag.IntVar(&timeout, "timeout", 5000, "Per-query statement timeout (ms)")
 	flag.StringVar(&logFile, "logfile", "", "Log file path (use .gz extension for gzip compression)")
-	flag.StringVar(&outputFile, "output", "scorer/weights/mysql.json", "Output file for calculated weights")
+	flag.StringVar(&outputFile, "output", "src/scorer/weights/mysql.json", "Output file for calculated weights")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, `mysql_calibrate — MySQL weight calibration via EXPLAIN
@@ -94,7 +94,7 @@ Generates calibrated scoring weights for the MySQL dialect by:
   1. Creating schema variants with deliberate anti-patterns
   2. Running EXPLAIN FORMAT=JSON against generated queries
   3. Correlating static scores with actual query costs
-  4. Producing a weights file for use by sqlscore --db mysql
+  4. Producing a weights file for use by query-test-tool --db mysql
 
 Usage:
   mysql_calibrate [flags]
@@ -102,7 +102,7 @@ Usage:
 Examples:
   mysql_calibrate -dsn "sqlstore:dbpassword@tcp(192.168.3.159:3306)/sqlstore" -schemas 1000 -queries 100000
   mysql_calibrate -host 192.168.3.159 -user sqlstore -password dbpassword -dbname sqlstore
-  mysql_calibrate -phase calculate -output scorer/weights/mysql.json
+  mysql_calibrate -phase calculate -output src/scorer/weights/mysql.json
 
 Flags:
 `)

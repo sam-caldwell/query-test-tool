@@ -31,7 +31,7 @@ make install    # copies to ~/.bin/
 ### Go Install
 
 ```bash
-go install github.com/sam-caldwell/query-test-tool/cmd/sqlscore@latest
+go install github.com/sam-caldwell/query-test-tool/cmd/query-test-tool@latest
 go install github.com/sam-caldwell/query-test-tool/cmd/calibrate@latest
 ```
 
@@ -161,7 +161,7 @@ Total Score: 25 (fair)
 
 ## Weight Calibration
 
-Scoring weights are stored in `scorer/weights.json` and embedded at build time. The `calibrate` tool derives optimal weights empirically.
+Scoring weights are stored in `src/scorer/weights.json` and embedded at build time. The `calibrate` tool derives optimal weights empirically.
 
 ### How It Works
 
@@ -170,7 +170,7 @@ Scoring weights are stored in `scorer/weights.json` and embedded at build time. 
 3. **Generate 1,000,000 queries** — 18 templates per antipattern, parameterized per schema
 4. **Run EXPLAIN ANALYZE** — concurrent execution against optimal and degraded schemas
 5. **OLS regression** — fits `log(cost_ratio) = Σ βᵢ × finding_count_i` to derive weights
-6. **Write weights** — outputs `scorer/weights.json`; rebuild `cmd/sqlscore` to embed
+6. **Write weights** — outputs `src/scorer/weights.json`; rebuild `cmd/query-test-tool` to embed
 
 ### Running Calibration
 
@@ -188,7 +188,7 @@ createdb sqlscore_calibrate
 ./bin/calibrate -phase init
 ./bin/calibrate -phase generate -schemas 1000 -queries 100000 -rows 500
 ./bin/calibrate -phase run -workers 16
-./bin/calibrate -phase calculate -output scorer/weights.json
+./bin/calibrate -phase calculate -output src/scorer/weights.json
 
 # Rebuild Query Test Tool to embed new weights
 make build
@@ -204,7 +204,7 @@ make build
   -rows         Rows per table (default: 1000)
   -workers      Concurrent EXPLAIN workers (default: 8)
   -timeout      Per-query timeout in ms (default: 5000)
-  -output       Output weights file (default: scorer/weights.json)
+  -output       Output weights file (default: src/scorer/weights.json)
   -schema-file  Path to .SQL DDL file to include as a custom calibration domain
 ```
 
@@ -263,7 +263,7 @@ The `.SQL` file should contain standard PostgreSQL DDL (`CREATE TABLE`, `CREATE 
 |--------|-------------|
 | `make clean` | Remove and recreate `bin/` |
 | `make lint` | Run `go vet -v ./...` and `govulncheck` |
-| `make build` | Build binaries using existing `scorer/weights.json` |
+| `make build` | Build binaries using existing `src/scorer/weights.json` |
 | `make build/full` | Run calibration to generate fresh weights, then build Query Test Tool |
 | `make install` | Copy binaries from `bin/` to `~/.bin/` |
 | `make test` | Run unit tests → integration tests → e2e tests (in order) |
@@ -289,10 +289,10 @@ git push && git push --tags
 
 ### Embedded Weights
 
-The `scorer/weights.json` file is embedded into the Query Test Tool binary at compile time using Go's `//go:embed` directive. This means:
+The `src/scorer/weights.json` file is embedded into the Query Test Tool binary at compile time using Go's `//go:embed` directive. This means:
 
 1. Default weights ship with the binary (no external files needed)
-2. Running `calibrate` updates `scorer/weights.json`
+2. Running `calibrate` updates `src/scorer/weights.json`
 3. Rebuilding with `make build` picks up the new weights
 4. The binary is fully self-contained
 
@@ -304,32 +304,33 @@ query-test-tool/
 ├── VERSION                   # Semantic version (read by Makefile)
 ├── README.md                 # This file
 ├── go.mod / go.sum           # Go module dependencies
-├── scorer/
-│   ├── weights.json          # Embedded scoring weights (updated by calibrate)
-│   ├── weights.go            # go:embed loader
-│   ├── scorer.go             # ScoreQuery(), Report, types
-│   ├── efficiency.go         # EfficiencyScorer
-│   ├── memory_compute.go     # MemoryComputeScorer
-│   ├── cognitive.go          # CognitiveScorer
-│   └── *_test.go             # Unit tests (98.6% coverage)
-├── parser/
-│   ├── parser.go             # Parse(), Walk(), Children()
-│   └── *_test.go             # Unit tests (100% coverage)
-├── calibrate/
-│   ├── types.go              # Shared types
-│   ├── archetype.go          # 7 domain archetypes
-│   ├── mutation.go           # Schema mutation generators
-│   ├── schemagen.go          # Schema family generation
-│   ├── datagen.go            # Data population
-│   ├── querygen.go           # Query generation (18 templates)
-│   ├── runner.go             # EXPLAIN execution
-│   ├── regression.go         # OLS ridge regression
-│   ├── pipeline.go           # Pipeline orchestration
-│   ├── db.go                 # Database operations
-│   └── *_test.go             # Unit tests
+├── src/
+│   ├── scorer/
+│   │   ├── weights.json          # Embedded scoring weights (updated by calibrate)
+│   │   ├── weights.go            # go:embed loader
+│   │   ├── scorer.go             # ScoreQuery(), Report, types
+│   │   ├── efficiency.go         # EfficiencyScorer
+│   │   ├── memory_compute.go     # MemoryComputeScorer
+│   │   ├── cognitive.go          # CognitiveScorer
+│   │   └── *_test.go             # Unit tests (98.6% coverage)
+│   ├── parser/
+│   │   ├── parser.go             # Parse(), Walk(), Children()
+│   │   └── *_test.go             # Unit tests (100% coverage)
+│   └── calibrate/
+│       ├── types.go              # Shared types
+│       ├── archetype.go          # 7 domain archetypes
+│       ├── mutation.go           # Schema mutation generators
+│       ├── schemagen.go          # Schema family generation
+│       ├── datagen.go            # Data population
+│       ├── querygen.go           # Query generation (18 templates)
+│       ├── runner.go             # EXPLAIN execution
+│       ├── regression.go         # OLS ridge regression
+│       ├── pipeline.go           # Pipeline orchestration
+│       ├── db.go                 # Database operations
+│       └── *_test.go             # Unit tests
 ├── cmd/
-│   ├── sqlscore/main.go      # CLI for scoring queries
-│   └── calibrate/main.go     # CLI for weight calibration
+│   ├── query-test-tool/main.go   # CLI for scoring queries
+│   └── calibrate/main.go         # CLI for weight calibration
 └── docs/
     ├── architecture.md       # System design
     ├── scoring.md            # Scoring methodology
@@ -346,7 +347,7 @@ make test
 make test/unit
 
 # With coverage
-go test ./parser/... ./scorer/... -cover
+go test ./src/parser/... ./src/scorer/... -cover
 # parser: 100%, scorer: 98.6%
 
 # Race detection

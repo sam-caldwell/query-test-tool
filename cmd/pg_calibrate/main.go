@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"strings"
 
-	"github.com/sam-caldwell/query-test-tool/calibrate"
+	"github.com/sam-caldwell/query-test-tool/src/calibrate"
 )
 
 // enforceSingleInstance uses a PID file lock to ensure only one calibrate
@@ -89,11 +89,11 @@ func main() {
 	flag.IntVar(&batchSize, "batch-size", defaultCfg.BatchSize, "Schemas per batch in batch-and-drop mode (0 to disable)")
 	flag.IntVar(&timeout, "timeout", 5000, "Per-query statement timeout (ms)")
 	flag.StringVar(&logFile, "logfile", "", "Log file path (use .gz extension for gzip compression)")
-	flag.StringVar(&outputFile, "output", "scorer/weights.json", "Output file for calculated weights (embedded by cmd/sqlscore at build time)")
+	flag.StringVar(&outputFile, "output", "src/scorer/weights.json", "Output file for calculated weights (embedded by cmd/query-test-tool at build time)")
 	flag.StringVar(&schemaFile, "schema-file", "", "Path to a .SQL DDL file to import as an additional calibration domain")
 
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, `sqlscore calibrate — Weight calibration via EXPLAIN ANALYZE
+		fmt.Fprintf(os.Stderr, `query-test-tool calibrate — Weight calibration via EXPLAIN ANALYZE
 
 Generates schemas with known antipatterns, runs 1M queries against PostgreSQL,
 and uses linear regression to determine optimal scoring weights.

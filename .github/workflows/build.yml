@@ -50,19 +50,19 @@ jobs:
           go-version-file: go.mod
 
       - name: Unit Tests
-        run: go test -count=1 -race -timeout 60s ./parser/... ./scorer/... ./calibrate/...
+        run: go test -count=1 -race -timeout 60s ./src/parser/... ./src/scorer/... ./src/calibrate/...
 
       - name: Integration Tests
         run: go test -count=1 -race -timeout 120s -tags integration ./...
 
       - name: E2E Tests
         run: |
-          go build -o bin/sqlscore ./cmd/sqlscore
-          go test -count=1 -timeout 120s ./cmd/sqlscore/...
+          go build -o bin/query-test-tool ./cmd/query-test-tool
+          go test -count=1 -timeout 120s ./cmd/query-test-tool/...
 
       - name: Coverage
         run: |
-          go test ./parser/... ./scorer/... -coverprofile=coverage.out -covermode=atomic
+          go test ./src/parser/... ./src/scorer/... -coverprofile=coverage.out -covermode=atomic
           go tool cover -func=coverage.out | tail -1
 
       - name: Upload Coverage
@@ -102,7 +102,7 @@ jobs:
           VERSION=$(cat VERSION)
           COMMIT=$(git rev-parse --short HEAD)
           go build -ldflags "-X main.version=${VERSION} -X main.commit=${COMMIT}" \
-            -o bin/sqlscore-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/sqlscore
+            -o bin/query-test-tool-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/query-test-tool
           go build -ldflags "-X main.version=${VERSION} -X main.commit=${COMMIT}" \
             -o bin/pg_calibrate-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/pg_calibrate
 

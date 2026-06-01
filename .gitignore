@@ -1,6 +1,6 @@
 # Binaries
 bin/
-/sqlscore
+/query-test-tool
 /pg_calibrate
 /mysql_calibrate
 *.exe
