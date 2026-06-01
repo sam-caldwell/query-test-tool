@@ -1,4 +1,4 @@
-# sqlscore
+# Query Test Tool
 
 Static analysis tool that parses arbitrary SQL queries and scores them across three dimensions: **efficiency**, **memory/compute cost**, and **cognitive complexity**. Includes a calibration system that derives optimal scoring weights empirically by running queries against PostgreSQL with EXPLAIN ANALYZE.
 
@@ -54,7 +54,7 @@ sqlscore -f query.sql
 
 ## Usage
 
-### sqlscore
+### Query Test Tool CLI
 
 ```
 Usage: sqlscore [options] [SQL]
@@ -190,7 +190,7 @@ createdb sqlscore_calibrate
 ./bin/calibrate -phase run -workers 16
 ./bin/calibrate -phase calculate -output scorer/weights.json
 
-# Rebuild sqlscore to embed new weights
+# Rebuild Query Test Tool to embed new weights
 make build
 ```
 
@@ -264,7 +264,7 @@ The `.SQL` file should contain standard PostgreSQL DDL (`CREATE TABLE`, `CREATE 
 | `make clean` | Remove and recreate `bin/` |
 | `make lint` | Run `go vet -v ./...` and `govulncheck` |
 | `make build` | Build binaries using existing `scorer/weights.json` |
-| `make build/full` | Run calibration to generate fresh weights, then build sqlscore |
+| `make build/full` | Run calibration to generate fresh weights, then build Query Test Tool |
 | `make install` | Copy binaries from `bin/` to `~/.bin/` |
 | `make test` | Run unit tests → integration tests → e2e tests (in order) |
 | `make release` | Bump patch version (alias for `make release/patch`) |
@@ -289,7 +289,7 @@ git push && git push --tags
 
 ### Embedded Weights
 
-The `scorer/weights.json` file is embedded into the `sqlscore` binary at compile time using Go's `//go:embed` directive. This means:
+The `scorer/weights.json` file is embedded into the Query Test Tool binary at compile time using Go's `//go:embed` directive. This means:
 
 1. Default weights ship with the binary (no external files needed)
 2. Running `calibrate` updates `scorer/weights.json`
