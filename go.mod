@@ -1,6 +1,6 @@
 module github.com/sam-caldwell/query-test-tool
 
-go 1.26.3
+go 1.26.4
 
 require (
 	github.com/go-sql-driver/mysql v1.10.0
